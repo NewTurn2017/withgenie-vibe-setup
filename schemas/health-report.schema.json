@@ -1,0 +1,328 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/NewTurn2017/withgenie-vibe-setup/main/schemas/health-report.schema.json",
+  "title": "VibeSetupHealthReport",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "generated_at",
+    "app",
+    "machine",
+    "summary",
+    "checks",
+    "redaction"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "0.1.0"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "app": {
+      "type": "object",
+      "required": [
+        "name",
+        "version",
+        "recipe_version",
+        "distribution_channel"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "recipe_version": {
+          "type": "string"
+        },
+        "distribution_channel": {
+          "type": "string",
+          "enum": [
+            "private_mvp",
+            "public_github",
+            "signed_beta",
+            "production"
+          ]
+        }
+      }
+    },
+    "machine": {
+      "type": "object",
+      "required": [
+        "os",
+        "os_version",
+        "arch",
+        "shell",
+        "network"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "os": {
+          "type": "string",
+          "enum": [
+            "macos",
+            "windows"
+          ]
+        },
+        "os_version": {
+          "type": "string"
+        },
+        "build_number": {
+          "type": "string"
+        },
+        "arch": {
+          "type": "string",
+          "enum": [
+            "arm64",
+            "x64",
+            "unknown"
+          ]
+        },
+        "shell": {
+          "type": "string"
+        },
+        "network": {
+          "type": "object",
+          "required": [
+            "status"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": [
+                "online",
+                "limited",
+                "offline",
+                "unknown"
+              ]
+            },
+            "blocked_hosts": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": [
+        "class_readiness",
+        "required_passed",
+        "required_total",
+        "needs_instructor_help",
+        "beginner_message"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "class_readiness": {
+          "type": "string",
+          "enum": [
+            "ready_for_class",
+            "needs_attention",
+            "blocked",
+            "unsupported"
+          ]
+        },
+        "required_passed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "required_total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "needs_instructor_help": {
+          "type": "boolean"
+        },
+        "beginner_message": {
+          "type": "string"
+        },
+        "instructor_message": {
+          "type": "string"
+        }
+      }
+    },
+    "checks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/check"
+      }
+    },
+    "execution_log": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/log_entry"
+      }
+    },
+    "resume_state": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "last_completed_step": {
+          "type": "string"
+        },
+        "next_action": {
+          "type": "string"
+        },
+        "requires_restart": {
+          "type": "boolean"
+        }
+      }
+    },
+    "redaction": {
+      "type": "object",
+      "required": [
+        "applied",
+        "rules_version",
+        "masked_fields"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "applied": {
+          "type": "boolean",
+          "const": true
+        },
+        "rules_version": {
+          "type": "string"
+        },
+        "masked_fields": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "check": {
+      "type": "object",
+      "required": [
+        "id",
+        "label",
+        "required_for_class",
+        "status",
+        "beginner_message",
+        "support_action"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "required_for_class": {
+          "type": "boolean"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "installed",
+            "missing",
+            "needs_repair",
+            "needs_restart",
+            "optional_skipped",
+            "unsupported",
+            "blocked"
+          ]
+        },
+        "detected_version": {
+          "type": "string"
+        },
+        "required_version": {
+          "type": "string"
+        },
+        "verify_command_label": {
+          "type": "string"
+        },
+        "beginner_message": {
+          "type": "string"
+        },
+        "support_action": {
+          "type": "string"
+        },
+        "evidence": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "exit_code": {
+              "type": "integer"
+            },
+            "duration_ms": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "stdout_redacted": {
+              "type": "string"
+            },
+            "stderr_redacted": {
+              "type": "string"
+            }
+          }
+        },
+        "links": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uri"
+          }
+        }
+      }
+    },
+    "log_entry": {
+      "type": "object",
+      "required": [
+        "timestamp",
+        "step_id",
+        "command_label",
+        "status"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "timestamp": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "step_id": {
+          "type": "string"
+        },
+        "command_label": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "started",
+            "passed",
+            "failed",
+            "cancelled",
+            "skipped"
+          ]
+        },
+        "exit_code": {
+          "type": "integer"
+        },
+        "duration_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "message_redacted": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

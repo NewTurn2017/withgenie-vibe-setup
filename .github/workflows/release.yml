@@ -1,0 +1,84 @@
+name: Release desktop app
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  release-tauri:
+    name: Build ${{ matrix.label }}
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Windows x64
+            platform: windows-latest
+            args: ''
+            rust-targets: ''
+          - label: macOS Apple Silicon
+            platform: macos-latest
+            args: '--target aarch64-apple-darwin'
+            rust-targets: 'aarch64-apple-darwin,x86_64-apple-darwin'
+          - label: macOS Intel
+            platform: macos-latest
+            args: '--target x86_64-apple-darwin'
+            rust-targets: 'aarch64-apple-darwin,x86_64-apple-darwin'
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - name: Install Rust stable
+        if: matrix.rust-targets == ''
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Rust stable with macOS targets
+        if: matrix.rust-targets != ''
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-targets }}
+
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Verify before release
+        run: |
+          npm run check
+          npm run verify:docs
+
+      - name: Build and upload signed Tauri bundles
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: v__VERSION__
+          releaseName: '위드지니 셋업 v__VERSION__'
+          releaseBody: |
+            위드지니 셋업 공개 릴리즈입니다.
+
+            - Windows: `.exe` 설치 파일을 내려받아 실행하세요.
+            - macOS: `.dmg` 파일을 내려받아 Applications로 옮기세요.
+            - 앱 내 업데이트 확인은 이 릴리즈의 서명된 `latest.json`을 사용합니다.
+          releaseDraft: false
+          prerelease: false
+          includeUpdaterJson: true
+          updaterJsonPreferNsis: true
+          assetNamePattern: 'withgenie-setup_[version]_[platform]_[arch][setup].[ext]'
+          args: ${{ matrix.args }}
