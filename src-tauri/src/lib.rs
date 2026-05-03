@@ -23,6 +23,33 @@ enum CheckStatus {
     Blocked,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum RiskTier {
+    Safe,
+    UserMediated,
+    PermissionPrompt,
+    Blocked,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum ActionPhase {
+    Detect,
+    ExternalFlow,
+    ManualGuidance,
+    NotAutomated,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum ElevationMethod {
+    None,
+    OsascriptAdmin,
+    WindowsRunas,
+    UserManaged,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ToolCheck {
     id: String,
@@ -47,6 +74,7 @@ struct CommandEvidence {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct RecipeStep {
     id: &'static str,
     label_ko: &'static str,
@@ -59,6 +87,15 @@ struct RecipeStep {
     requires_browser: bool,
     required_version_hint: Option<&'static str>,
     docs_url: &'static str,
+    risk_tier: RiskTier,
+    action_phase: ActionPhase,
+    approval_copy_ko: &'static str,
+    expected_permission_prompt_ko: &'static str,
+    package_source: Option<&'static str>,
+    rollback_note_ko: &'static str,
+    support_handoff_ko: &'static str,
+    command_preview: &'static str,
+    requires_elevation_method: ElevationMethod,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -91,11 +128,45 @@ struct RecipeStepView {
     requires_browser: bool,
     required_version_hint: Option<&'static str>,
     docs_url: &'static str,
+    risk_tier: RiskTier,
+    action_phase: ActionPhase,
+    approval_copy_ko: &'static str,
+    expected_permission_prompt_ko: &'static str,
+    package_source: Option<&'static str>,
+    rollback_note_ko: &'static str,
+    support_handoff_ko: &'static str,
+    command_preview: &'static str,
+    requires_elevation_method: ElevationMethod,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct HealthReportInput {
     checks: Vec<ToolCheck>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ApprovalCardInput {
+    id: String,
+    label: String,
+    decision: String,
+    reason_ko: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct HandoffPacketInput {
+    checks: Vec<ToolCheck>,
+    approval_cards: Vec<ApprovalCardInput>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct HandoffPacket {
+    generated_at: String,
+    student_summary_ko: String,
+    instructor_summary_ko: String,
+    next_action_ko: String,
+    checks: Vec<ToolCheck>,
+    approval_cards: Vec<ApprovalCardInput>,
+    redaction: RedactionInfo,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -184,6 +255,15 @@ fn allowed_commands() -> Vec<RecipeStep> {
             requires_browser: false,
             required_version_hint: Some("^v24."),
             docs_url: "https://nodejs.org/dist/latest-v24.x/",
+            risk_tier: RiskTier::Safe,
+            action_phase: ActionPhase::Detect,
+            approval_copy_ko: "현재 상태만 확인하며 컴퓨터 설정을 바꾸지 않습니다.",
+            expected_permission_prompt_ko: "권한 창이 나타나지 않습니다.",
+            package_source: None,
+            rollback_note_ko: "변경 사항이 없어 되돌릴 작업이 없습니다.",
+            support_handoff_ko: "진단 결과와 redacted evidence를 강사에게 전달하세요.",
+            command_preview: "node -v",
+            requires_elevation_method: ElevationMethod::None,
         },
         RecipeStep {
             id: "npm.version",
@@ -197,6 +277,15 @@ fn allowed_commands() -> Vec<RecipeStep> {
             requires_browser: false,
             required_version_hint: None,
             docs_url: "https://nodejs.org/",
+            risk_tier: RiskTier::Safe,
+            action_phase: ActionPhase::Detect,
+            approval_copy_ko: "현재 상태만 확인하며 컴퓨터 설정을 바꾸지 않습니다.",
+            expected_permission_prompt_ko: "권한 창이 나타나지 않습니다.",
+            package_source: None,
+            rollback_note_ko: "변경 사항이 없어 되돌릴 작업이 없습니다.",
+            support_handoff_ko: "진단 결과와 redacted evidence를 강사에게 전달하세요.",
+            command_preview: "npm -v",
+            requires_elevation_method: ElevationMethod::None,
         },
         RecipeStep {
             id: "pnpm.version",
@@ -210,6 +299,15 @@ fn allowed_commands() -> Vec<RecipeStep> {
             requires_browser: false,
             required_version_hint: None,
             docs_url: "https://pnpm.io/",
+            risk_tier: RiskTier::Safe,
+            action_phase: ActionPhase::Detect,
+            approval_copy_ko: "현재 상태만 확인하며 컴퓨터 설정을 바꾸지 않습니다.",
+            expected_permission_prompt_ko: "권한 창이 나타나지 않습니다.",
+            package_source: None,
+            rollback_note_ko: "변경 사항이 없어 되돌릴 작업이 없습니다.",
+            support_handoff_ko: "진단 결과와 redacted evidence를 강사에게 전달하세요.",
+            command_preview: "pnpm -v",
+            requires_elevation_method: ElevationMethod::None,
         },
         RecipeStep {
             id: "git.version",
@@ -223,6 +321,15 @@ fn allowed_commands() -> Vec<RecipeStep> {
             requires_browser: false,
             required_version_hint: None,
             docs_url: "https://github.com/git-guides/install-git",
+            risk_tier: RiskTier::Safe,
+            action_phase: ActionPhase::Detect,
+            approval_copy_ko: "현재 상태만 확인하며 컴퓨터 설정을 바꾸지 않습니다.",
+            expected_permission_prompt_ko: "권한 창이 나타나지 않습니다.",
+            package_source: None,
+            rollback_note_ko: "변경 사항이 없어 되돌릴 작업이 없습니다.",
+            support_handoff_ko: "진단 결과와 redacted evidence를 강사에게 전달하세요.",
+            command_preview: "git --version",
+            requires_elevation_method: ElevationMethod::None,
         },
         RecipeStep {
             id: "gh.auth.status",
@@ -236,6 +343,15 @@ fn allowed_commands() -> Vec<RecipeStep> {
             requires_browser: false,
             required_version_hint: None,
             docs_url: "https://cli.github.com/manual/gh_auth_login",
+            risk_tier: RiskTier::Safe,
+            action_phase: ActionPhase::Detect,
+            approval_copy_ko: "현재 상태만 확인하며 컴퓨터 설정을 바꾸지 않습니다.",
+            expected_permission_prompt_ko: "권한 창이 나타나지 않습니다.",
+            package_source: None,
+            rollback_note_ko: "변경 사항이 없어 되돌릴 작업이 없습니다.",
+            support_handoff_ko: "진단 결과와 redacted evidence를 강사에게 전달하세요.",
+            command_preview: "gh auth status",
+            requires_elevation_method: ElevationMethod::None,
         },
         RecipeStep {
             id: "gh.auth.login",
@@ -249,6 +365,15 @@ fn allowed_commands() -> Vec<RecipeStep> {
             requires_browser: true,
             required_version_hint: None,
             docs_url: "https://cli.github.com/manual/gh_auth_login",
+            risk_tier: RiskTier::UserMediated,
+            action_phase: ActionPhase::ExternalFlow,
+            approval_copy_ko: "공식 브라우저 로그인 흐름을 엽니다. 앱은 비밀번호나 토큰을 받지 않습니다.",
+            expected_permission_prompt_ko: "브라우저 로그인 또는 device code 확인 화면이 나타날 수 있습니다.",
+            package_source: None,
+            rollback_note_ko: "로그인은 해당 서비스의 공식 CLI에서 관리합니다. 필요하면 공식 CLI에서 로그아웃하세요.",
+            support_handoff_ko: "브라우저 로그인 단계에서 막혔는지, CLI 인증 상태가 실패했는지 확인하세요.",
+            command_preview: "gh auth login",
+            requires_elevation_method: ElevationMethod::UserManaged,
         },
         RecipeStep {
             id: "vercel.whoami",
@@ -262,6 +387,15 @@ fn allowed_commands() -> Vec<RecipeStep> {
             requires_browser: false,
             required_version_hint: None,
             docs_url: "https://vercel.com/docs/cli",
+            risk_tier: RiskTier::Safe,
+            action_phase: ActionPhase::Detect,
+            approval_copy_ko: "현재 상태만 확인하며 컴퓨터 설정을 바꾸지 않습니다.",
+            expected_permission_prompt_ko: "권한 창이 나타나지 않습니다.",
+            package_source: None,
+            rollback_note_ko: "변경 사항이 없어 되돌릴 작업이 없습니다.",
+            support_handoff_ko: "진단 결과와 redacted evidence를 강사에게 전달하세요.",
+            command_preview: "vercel whoami",
+            requires_elevation_method: ElevationMethod::None,
         },
         RecipeStep {
             id: "vercel.login",
@@ -275,6 +409,15 @@ fn allowed_commands() -> Vec<RecipeStep> {
             requires_browser: true,
             required_version_hint: None,
             docs_url: "https://vercel.com/docs/cli/login",
+            risk_tier: RiskTier::UserMediated,
+            action_phase: ActionPhase::ExternalFlow,
+            approval_copy_ko: "공식 브라우저 로그인 흐름을 엽니다. 앱은 비밀번호나 토큰을 받지 않습니다.",
+            expected_permission_prompt_ko: "브라우저 로그인 또는 device code 확인 화면이 나타날 수 있습니다.",
+            package_source: None,
+            rollback_note_ko: "로그인은 해당 서비스의 공식 CLI에서 관리합니다. 필요하면 공식 CLI에서 로그아웃하세요.",
+            support_handoff_ko: "브라우저 로그인 단계에서 막혔는지, CLI 인증 상태가 실패했는지 확인하세요.",
+            command_preview: "vercel login",
+            requires_elevation_method: ElevationMethod::UserManaged,
         },
         RecipeStep {
             id: "macos.version",
@@ -288,6 +431,15 @@ fn allowed_commands() -> Vec<RecipeStep> {
             requires_browser: false,
             required_version_hint: Some("14 이상"),
             docs_url: "https://docs.brew.sh/Installation",
+            risk_tier: RiskTier::Safe,
+            action_phase: ActionPhase::Detect,
+            approval_copy_ko: "현재 상태만 확인하며 컴퓨터 설정을 바꾸지 않습니다.",
+            expected_permission_prompt_ko: "권한 창이 나타나지 않습니다.",
+            package_source: None,
+            rollback_note_ko: "변경 사항이 없어 되돌릴 작업이 없습니다.",
+            support_handoff_ko: "진단 결과와 redacted evidence를 강사에게 전달하세요.",
+            command_preview: "sw_vers -productVersion",
+            requires_elevation_method: ElevationMethod::None,
         },
         RecipeStep {
             id: "macos.clt",
@@ -301,6 +453,15 @@ fn allowed_commands() -> Vec<RecipeStep> {
             requires_browser: false,
             required_version_hint: None,
             docs_url: "https://docs.brew.sh/Installation",
+            risk_tier: RiskTier::Safe,
+            action_phase: ActionPhase::Detect,
+            approval_copy_ko: "현재 상태만 확인하며 컴퓨터 설정을 바꾸지 않습니다.",
+            expected_permission_prompt_ko: "권한 창이 나타나지 않습니다.",
+            package_source: None,
+            rollback_note_ko: "변경 사항이 없어 되돌릴 작업이 없습니다.",
+            support_handoff_ko: "진단 결과와 redacted evidence를 강사에게 전달하세요.",
+            command_preview: "xcode-select -p",
+            requires_elevation_method: ElevationMethod::None,
         },
         RecipeStep {
             id: "brew.version",
@@ -314,6 +475,15 @@ fn allowed_commands() -> Vec<RecipeStep> {
             requires_browser: false,
             required_version_hint: None,
             docs_url: "https://docs.brew.sh/Installation",
+            risk_tier: RiskTier::Safe,
+            action_phase: ActionPhase::Detect,
+            approval_copy_ko: "현재 상태만 확인하며 컴퓨터 설정을 바꾸지 않습니다.",
+            expected_permission_prompt_ko: "권한 창이 나타나지 않습니다.",
+            package_source: None,
+            rollback_note_ko: "변경 사항이 없어 되돌릴 작업이 없습니다.",
+            support_handoff_ko: "진단 결과와 redacted evidence를 강사에게 전달하세요.",
+            command_preview: "brew --version",
+            requires_elevation_method: ElevationMethod::None,
         },
         RecipeStep {
             id: "windows.winget.version",
@@ -327,6 +497,15 @@ fn allowed_commands() -> Vec<RecipeStep> {
             requires_browser: false,
             required_version_hint: None,
             docs_url: "https://learn.microsoft.com/en-us/windows/package-manager/winget/",
+            risk_tier: RiskTier::Safe,
+            action_phase: ActionPhase::Detect,
+            approval_copy_ko: "현재 상태만 확인하며 컴퓨터 설정을 바꾸지 않습니다.",
+            expected_permission_prompt_ko: "권한 창이 나타나지 않습니다.",
+            package_source: None,
+            rollback_note_ko: "변경 사항이 없어 되돌릴 작업이 없습니다.",
+            support_handoff_ko: "진단 결과와 redacted evidence를 강사에게 전달하세요.",
+            command_preview: "winget --version",
+            requires_elevation_method: ElevationMethod::None,
         },
         RecipeStep {
             id: "wsl.status",
@@ -340,6 +519,15 @@ fn allowed_commands() -> Vec<RecipeStep> {
             requires_browser: false,
             required_version_hint: None,
             docs_url: "https://learn.microsoft.com/en-us/windows/wsl/install",
+            risk_tier: RiskTier::Safe,
+            action_phase: ActionPhase::Detect,
+            approval_copy_ko: "현재 상태만 확인하며 컴퓨터 설정을 바꾸지 않습니다.",
+            expected_permission_prompt_ko: "권한 창이 나타나지 않습니다.",
+            package_source: None,
+            rollback_note_ko: "변경 사항이 없어 되돌릴 작업이 없습니다.",
+            support_handoff_ko: "진단 결과와 redacted evidence를 강사에게 전달하세요.",
+            command_preview: "wsl --status",
+            requires_elevation_method: ElevationMethod::None,
         },
     ]
 }
@@ -614,6 +802,15 @@ fn get_setup_plan() -> AppPlan {
                 requires_browser: step.requires_browser,
                 required_version_hint: step.required_version_hint,
                 docs_url: step.docs_url,
+                risk_tier: step.risk_tier,
+                action_phase: step.action_phase,
+                approval_copy_ko: step.approval_copy_ko,
+                expected_permission_prompt_ko: step.expected_permission_prompt_ko,
+                package_source: step.package_source,
+                rollback_note_ko: step.rollback_note_ko,
+                support_handoff_ko: step.support_handoff_ko,
+                command_preview: step.command_preview,
+                requires_elevation_method: step.requires_elevation_method,
             })
             .collect(),
         forbidden_commands: vec![
@@ -748,6 +945,46 @@ fn build_health_report(input: HealthReportInput) -> HealthReport {
 }
 
 #[tauri::command]
+fn build_handoff_packet(input: HandoffPacketInput) -> HandoffPacket {
+    let summary = summarize(&input.checks);
+    let help_requested = input
+        .approval_cards
+        .iter()
+        .any(|card| card.decision == "ask_instructor");
+    let failed_count = input
+        .checks
+        .iter()
+        .filter(|check| !matches!(check.status, CheckStatus::Installed | CheckStatus::OptionalSkipped))
+        .count();
+
+    HandoffPacket {
+        generated_at: Utc::now().to_rfc3339(),
+        student_summary_ko: summary.beginner_message,
+        instructor_summary_ko: summary.instructor_message,
+        next_action_ko: if help_requested {
+            "승인 큐에서 강사 도움 요청으로 표시된 항목을 먼저 확인하세요.".to_string()
+        } else if failed_count > 0 {
+            "실패한 항목의 support_action과 redacted evidence를 확인하세요.".to_string()
+        } else {
+            "필수 항목이 준비되었습니다.".to_string()
+        },
+        checks: input.checks,
+        approval_cards: input.approval_cards,
+        redaction: RedactionInfo {
+            applied: true,
+            rules_version: "0.1.0",
+            masked_fields: vec![
+                "token_like_strings",
+                "password_like_values",
+                "email_addresses",
+                "home_paths",
+                "oauth_device_codes",
+            ],
+        },
+    }
+}
+
+#[tauri::command]
 fn preview_redaction(sample: String) -> String {
     redact(&sample)
 }
@@ -767,6 +1004,7 @@ pub fn run() {
             run_diagnostic,
             run_all_diagnostics,
             build_health_report,
+            build_handoff_packet,
             preview_redaction
         ])
         .run(tauri::generate_context!())
@@ -877,6 +1115,41 @@ mod tests {
         let report = build_health_report(HealthReportInput { checks: vec![] });
         assert!(report.redaction.applied);
         assert_eq!(report.schema_version, "0.1.0");
+    }
+
+    #[test]
+    fn consent_recipes_are_user_mediated_external_flows() {
+        let gh = find_allowed_command("gh.auth.login").expect("GitHub login recipe should exist");
+        let vercel = find_allowed_command("vercel.login").expect("Vercel login recipe should exist");
+
+        assert_eq!(gh.risk_tier, RiskTier::UserMediated);
+        assert_eq!(gh.action_phase, ActionPhase::ExternalFlow);
+        assert_eq!(vercel.risk_tier, RiskTier::UserMediated);
+        assert_eq!(vercel.action_phase, ActionPhase::ExternalFlow);
+    }
+
+    #[test]
+    fn diagnostic_recipes_are_safe_detect_actions() {
+        let node = find_allowed_command("node.version").expect("Node version recipe should exist");
+        assert_eq!(node.risk_tier, RiskTier::Safe);
+        assert_eq!(node.action_phase, ActionPhase::Detect);
+        assert!(!node.requires_consent);
+    }
+
+    #[test]
+    fn handoff_packet_preserves_redaction_contract() {
+        let packet = build_handoff_packet(HandoffPacketInput {
+            checks: vec![],
+            approval_cards: vec![ApprovalCardInput {
+                id: "node.version".to_string(),
+                label: "Node.js 버전 확인".to_string(),
+                decision: "ask_instructor".to_string(),
+                reason_ko: "설치가 필요합니다.".to_string(),
+            }],
+        });
+
+        assert!(packet.redaction.applied);
+        assert!(packet.next_action_ko.contains("강사 도움 요청"));
     }
 
     #[test]

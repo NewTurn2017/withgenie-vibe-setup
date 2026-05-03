@@ -40,6 +40,22 @@
 | `redaction` | 로그에서 숨겨야 할 패턴 |
 | `beginner_copy` | 초보자용 설명 문구 |
 
+## Risk tier and action phase contract
+
+| Risk tier | 의미 | Productized v1 behavior |
+| --- | --- | --- |
+| `safe` | 상태 확인만 수행 | 진단에서 자동 실행 가능 |
+| `user_mediated` | 브라우저 로그인, 업데이트처럼 사용자가 승인해야 함 | 승인 큐 카드 표시 후 공식 흐름 열기 |
+| `permission_prompt` | UAC, sudo, installer prompt 가능 | 권한 안내와 강사 도움 경로를 먼저 표시 |
+| `blocked` | 앱이 실행하지 않는 흐름 | 실행하지 않고 handoff packet 생성 |
+
+| Action phase | 의미 |
+| --- | --- |
+| `detect` | 상태 확인 |
+| `external_flow` | 공식 브라우저/업데이트 흐름 |
+| `manual_guidance` | 사용자가 직접 진행하는 안내 |
+| `not_automated` | 자동 실행 금지 |
+
 ## 3. Node.js v24 LTS(Krypton)
 
 ### macOS

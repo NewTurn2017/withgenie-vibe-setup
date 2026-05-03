@@ -23,7 +23,18 @@
 | `blocked` | 권한/정책/네트워크/unsupported로 강사 지원 필요 |
 | `unsupported` | OS/정책상 MVP 지원 불가 |
 
-## 3. JSON Schema draft
+## 3. Handoff packet states
+
+The productized Human-in-the-loop flow adds a local handoff packet for instructor/TA support. The packet is generated only after diagnostics or approval-queue decisions exist, stays local by default, and contains redacted check evidence plus approval decisions.
+
+| 필드 | 의미 |
+| --- | --- |
+| `student_summary_ko` | 학생이 이해할 수 있는 현재 상태 요약 |
+| `instructor_summary_ko` | 강사/TA가 바로 볼 수 있는 지원 요약 |
+| `next_action_ko` | 다음 지원 행동 |
+| `approval_cards` | 승인, 보류, 직접 진행, 강사 도움 요청 상태 |
+
+## 4. JSON Schema draft
 
 ```json
 {
@@ -195,7 +206,7 @@
 }
 ```
 
-## 4. Example report
+## 5. Example report
 
 ```json
 {
@@ -259,7 +270,7 @@
 }
 ```
 
-## 5. Redaction rules
+## 6. Redaction rules
 
 | 패턴 | 처리 |
 | --- | --- |
@@ -270,7 +281,7 @@
 | Windows `C:\Users\<name>` | `C:\Users\[REDACTED_USER]` |
 | OAuth/device code | `[REDACTED_CODE]` |
 
-## 6. Instructor decision guide
+## 7. Instructor decision guide
 
 | report summary | 강사 판단 |
 | --- | --- |
@@ -279,7 +290,7 @@
 | `blocked` | 조교/강사 직접 지원 필요, fallback 문서 사용 |
 | `unsupported` | 장비/OS 교체 또는 대체 수업 경로 필요 |
 
-## 7. Schema validation requirements
+## 8. Schema validation requirements
 
 - JSON schema 문법이 유효해야 한다.
 - example report가 schema 필수 필드를 모두 포함해야 한다.

@@ -154,7 +154,6 @@
     },
     "checks": {
       "type": "array",
-      "minItems": 1,
       "items": {
         "$ref": "#/$defs/check"
       }

@@ -1,78 +1,17 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check } from "@tauri-apps/plugin-updater";
+import type { ApprovalCard, ApprovalDecision, CheckStatus, HealthReport, SetupPlan, ToolCheck } from "./types";
+import { deriveApprovalQueue } from "./approvalQueue";
+import { buildLocalHandoffPacket, formatHandoffPacket } from "./handoffPacket";
+import { approvalDecisionLabels, riskTierClassName, riskTierDescriptions, riskTierLabels } from "./risk";
+import { clearResumeState, loadResumeState, saveResumeState } from "./storage";
+import { LogView } from "./logView";
+import type { LogLine } from "./logView";
 import "./App.css";
 
-type CheckStatus =
-  | "installed"
-  | "missing"
-  | "needs_repair"
-  | "needs_restart"
-  | "optional_skipped"
-  | "unsupported"
-  | "blocked";
-
-type RecipeStep = {
-  id: string;
-  label_ko: string;
-  description_ko: string;
-  verify_command_label: string;
-  required_for_class: boolean;
-  requires_consent: boolean;
-  may_require_elevation: boolean;
-  requires_browser: boolean;
-  required_version_hint?: string | null;
-  docs_url: string;
-};
-
-type SetupPlan = {
-  steps: RecipeStep[];
-  forbidden_commands: string[];
-  security_notes: string[];
-};
-
-type CommandEvidence = {
-  exit_code?: number | null;
-  duration_ms: number;
-  stdout_redacted: string;
-  stderr_redacted: string;
-};
-
-type ToolCheck = {
-  id: string;
-  label: string;
-  required_for_class: boolean;
-  status: CheckStatus;
-  detected_version?: string | null;
-  required_version?: string | null;
-  verify_command_label: string;
-  beginner_message: string;
-  support_action: string;
-  evidence: CommandEvidence;
-  links: string[];
-};
-
-type HealthReport = {
-  schema_version: string;
-  generated_at: string;
-  summary: {
-    class_readiness: "ready_for_class" | "needs_attention" | "blocked" | "unsupported";
-    required_passed: number;
-    required_total: number;
-    needs_instructor_help: boolean;
-    beginner_message: string;
-    instructor_message: string;
-  };
-  checks: ToolCheck[];
-  redaction: {
-    applied: boolean;
-    rules_version: string;
-    masked_fields: string[];
-  };
-};
-
-type ScreenId = "overview" | "plan" | "diagnostics" | "report" | "help";
+type ScreenId = "overview" | "plan" | "diagnostics" | "approval" | "report" | "help";
 type BusyTask = "plan" | "diagnostics" | "report" | "update" | null;
 type StepState = "done" | "current" | "waiting";
 
@@ -96,12 +35,16 @@ const readinessLabels: Record<HealthReport["summary"]["class_readiness"], string
 const actionStatuses: CheckStatus[] = ["missing", "needs_repair", "needs_restart", "blocked", "unsupported"];
 
 function App() {
-  const [activeScreen, setActiveScreen] = useState<ScreenId>("overview");
+  const initialResumeState = useMemo(() => loadResumeState(), []);
+  const [activeScreen, setActiveScreen] = useState<ScreenId>(initialResumeState.activeScreen);
   const [plan, setPlan] = useState<SetupPlan | null>(null);
   const [checks, setChecks] = useState<ToolCheck[]>([]);
   const [report, setReport] = useState<HealthReport | null>(null);
   const [busyTask, setBusyTask] = useState<BusyTask>(null);
   const [message, setMessage] = useState("앱을 시작하면 현재 컴퓨터 상태를 안전하게 진단합니다.");
+  const [approvalDecisions, setApprovalDecisions] = useState<Record<string, ApprovalDecision>>(initialResumeState.approvalDecisions);
+  const [focusedCardId, setFocusedCardId] = useState<string | null>(null);
+  const logLines: LogLine[] = [];
 
   const isBusy = busyTask !== null;
   const requiredCount = useMemo(
@@ -119,6 +62,21 @@ function App() {
     [checks],
   );
 
+  const approvalQueue = useMemo(
+    () => deriveApprovalQueue(plan, checks, approvalDecisions),
+    [approvalDecisions, checks, plan],
+  );
+
+  const focusedCard = useMemo(
+    () => approvalQueue.find((card) => card.id === focusedCardId) ?? approvalQueue[0] ?? null,
+    [approvalQueue, focusedCardId],
+  );
+
+  const handoffPacketText = useMemo(
+    () => formatHandoffPacket(buildLocalHandoffPacket(report, checks, approvalQueue)),
+    [approvalQueue, checks, report],
+  );
+
   const currentReadiness = report ? readinessLabels[report.summary.class_readiness] : checks.length > 0 ? "리포트 준비됨" : "진단 전";
   const progressPercent = report
     ? Math.round((report.summary.required_passed / Math.max(report.summary.required_total, 1)) * 100)
@@ -127,6 +85,15 @@ function App() {
       : plan
         ? 35
         : 12;
+
+  useEffect(() => {
+    saveResumeState({
+      lastUpdatedAt: new Date().toISOString(),
+      lastCompletedStep: checks.length > 0 ? "diagnostics" : plan ? "plan" : "overview",
+      activeScreen,
+      approvalDecisions,
+    });
+  }, [activeScreen, approvalDecisions, checks.length, plan]);
 
   const navItems = useMemo(
     () => [
@@ -144,6 +111,12 @@ function App() {
         state: (busyTask === "diagnostics" || activeScreen === "diagnostics" ? "current" : checks.length ? "done" : "waiting") as StepState,
       },
       {
+        id: "approval" as ScreenId,
+        label: "승인 큐",
+        helper: approvalQueue.length ? `${approvalQueue.length}개 행동` : "진단 후 생성",
+        state: (activeScreen === "approval" ? "current" : approvalQueue.length ? "done" : "waiting") as StepState,
+      },
+      {
         id: "report" as ScreenId,
         label: "리포트",
         helper: report ? "복사 가능" : checks.length ? "생성 가능" : "진단 후 가능",
@@ -151,8 +124,20 @@ function App() {
       },
       { id: "help" as ScreenId, label: "도움말", helper: needsActionCount ? "막힐 때" : "참고", state: (activeScreen === "help" ? "current" : "waiting") as StepState },
     ],
-    [activeScreen, busyTask, checks.length, needsActionCount, plan, report],
+    [activeScreen, approvalQueue.length, busyTask, checks.length, needsActionCount, plan, report],
   );
+
+  function resetLocalProgress() {
+    clearResumeState();
+    setApprovalDecisions({});
+    setActiveScreen("overview");
+    setMessage("이 컴퓨터의 로컬 진행 상태를 초기화했습니다. 진단 기록 파일이나 외부 계정은 삭제하지 않습니다.");
+  }
+
+  function setApprovalDecision(cardId: string, decision: ApprovalDecision) {
+    setApprovalDecisions((current) => ({ ...current, [cardId]: decision }));
+    setMessage(`승인 큐 항목을 '${approvalDecisionLabels[decision]}' 상태로 바꿨습니다.`);
+  }
 
   async function loadPlan() {
     setBusyTask("plan");
@@ -180,7 +165,13 @@ function App() {
         input: { checks: nextChecks },
       });
       setReport(nextReport);
-      setMessage(nextReport.summary.beginner_message);
+      const nextQueue = deriveApprovalQueue(plan, nextChecks, approvalDecisions);
+      if (nextQueue.length > 0) {
+        setActiveScreen("approval");
+        setMessage(`${nextQueue.length}개 항목에 대해 다음 행동을 선택해야 합니다.`);
+      } else {
+        setMessage(nextReport.summary.beginner_message);
+      }
     } catch (error) {
       setMessage(`진단 중 문제가 생겼습니다: ${String(error)}`);
     } finally {
@@ -213,6 +204,15 @@ function App() {
       setMessage("리포트 내용을 클립보드에 복사했습니다.");
     } catch (error) {
       setMessage(`리포트를 복사하지 못했습니다: ${String(error)}`);
+    }
+  }
+
+  async function copyHandoffPacket() {
+    try {
+      await navigator.clipboard.writeText(handoffPacketText);
+      setMessage("강사용 핸드오프 패킷을 클립보드에 복사했습니다.");
+    } catch (error) {
+      setMessage(`핸드오프 패킷을 복사하지 못했습니다: ${String(error)}`);
     }
   }
 
@@ -313,8 +313,9 @@ function App() {
           {activeScreen === "overview" && renderOverview()}
           {activeScreen === "plan" && renderPlan(plan, loadPlan, isBusy)}
           {activeScreen === "diagnostics" && renderDiagnostics(checks, buildReport, isBusy)}
-          {activeScreen === "report" && renderReport(report, checks, buildReport, copyReport, isBusy)}
-          {activeScreen === "help" && renderHelp(plan, checkForUpdates, isBusy)}
+          {activeScreen === "approval" && renderApprovalQueue(approvalQueue, focusedCard, logLines, setApprovalDecision, setFocusedCardId)}
+          {activeScreen === "report" && renderReport(report, checks, handoffPacketText, buildReport, copyReport, copyHandoffPacket, isBusy)}
+          {activeScreen === "help" && renderHelp(plan, checkForUpdates, resetLocalProgress, isBusy)}
         </section>
       </div>
 
@@ -449,11 +450,73 @@ function renderDiagnostics(checks: ToolCheck[], buildReport: () => void, isBusy:
   );
 }
 
+function renderApprovalQueue(
+  cards: ApprovalCard[],
+  focusedCard: ApprovalCard | null,
+  lines: LogLine[],
+  setDecision: (cardId: string, decision: ApprovalDecision) => void,
+  setFocused: (cardId: string) => void,
+) {
+  return (
+    <div className="screen-stack approval-stack">
+      <div className="screen-heading">
+        <div>
+          <p className="eyebrow">승인 큐</p>
+          <h2>자동으로 하지 않고, 먼저 설명하고 선택합니다.</h2>
+        </div>
+      </div>
+
+      {cards.length === 0 ? (
+        <EmptyState
+          title="승인이 필요한 항목이 없습니다."
+          body="진단을 실행하면 설치 필요, 복구 필요, 차단 항목이 승인 큐로 정리됩니다."
+        />
+      ) : (
+        <div className="content-scroll approval-list">
+          {cards.map((card) => (
+            <article className={`approval-card ${riskTierClassName(card.step.risk_tier)}`} key={card.id} onClick={() => setFocused(card.id)}>
+              <div className="approval-card-header">
+                <div>
+                  <strong>{card.step.label_ko}</strong>
+                  <p>{card.reason_ko}</p>
+                </div>
+                <span>{riskTierLabels[card.step.risk_tier]}</span>
+              </div>
+              <p>{card.step.approval_copy_ko}</p>
+              <dl>
+                <dt>권한 안내</dt>
+                <dd>{card.step.expected_permission_prompt_ko}</dd>
+                <dt>공식 출처</dt>
+                <dd>{card.step.package_source ?? card.step.docs_url}</dd>
+                <dt>검증</dt>
+                <dd><code>{card.step.verify_command_label}</code></dd>
+                <dt>되돌리기</dt>
+                <dd>{card.step.rollback_note_ko}</dd>
+              </dl>
+              <p className="risk-description">{riskTierDescriptions[card.step.risk_tier]}</p>
+              <div className="approval-actions">
+                <button type="button" className="primary" onClick={() => setDecision(card.id, "approved")}>승인</button>
+                <button type="button" onClick={() => setDecision(card.id, "manual")}>직접 할게요</button>
+                <button type="button" onClick={() => setDecision(card.id, "deferred")}>나중에</button>
+                <button type="button" onClick={() => setDecision(card.id, "ask_instructor")}>강사에게 도움 요청</button>
+              </div>
+              <small>현재 선택: {approvalDecisionLabels[card.decision]}</small>
+            </article>
+          ))}
+        </div>
+      )}
+      <LogView focusedCard={focusedCard} lines={lines} />
+    </div>
+  );
+}
+
 function renderReport(
   report: HealthReport | null,
   checks: ToolCheck[],
+  handoffPacketText: string,
   buildReport: () => void,
   copyReport: () => void,
+  copyHandoffPacket: () => void,
   isBusy: boolean,
 ) {
   return (
@@ -466,6 +529,7 @@ function renderReport(
         <div className="inline-actions">
           <button type="button" onClick={buildReport} disabled={checks.length === 0 || isBusy}>새로 만들기</button>
           <button type="button" className="primary" onClick={copyReport} disabled={checks.length === 0 || isBusy}>복사하기</button>
+          <button type="button" onClick={copyHandoffPacket} disabled={checks.length === 0 || isBusy}>강사용 패킷 복사</button>
         </div>
       </div>
 
@@ -487,13 +551,17 @@ function renderReport(
             <div><strong>{report.redaction.applied ? "적용됨" : "확인 필요"}</strong><span>민감정보 가림</span></div>
             <div><strong>{report.summary.needs_instructor_help ? "필요" : "불필요"}</strong><span>강사 지원</span></div>
           </div>
+          <article className="handoff-preview">
+            <strong>강사용 핸드오프 미리보기</strong>
+            <pre>{handoffPacketText}</pre>
+          </article>
         </div>
       )}
     </div>
   );
 }
 
-function renderHelp(plan: SetupPlan | null, checkForUpdates: () => void, isBusy: boolean) {
+function renderHelp(plan: SetupPlan | null, checkForUpdates: () => void, resetLocalProgress: () => void, isBusy: boolean) {
   return (
     <div className="screen-stack help-stack">
       <div className="screen-heading">
@@ -507,6 +575,7 @@ function renderHelp(plan: SetupPlan | null, checkForUpdates: () => void, isBusy:
         <div><strong>복구 필요</strong><p>표시된 항목의 복구 안내를 따라 새 터미널에서 다시 확인하세요.</p></div>
         <div><strong>강사 지원 필요</strong><p>리포트 내용을 강사 또는 조교에게 전달하세요.</p></div>
         <div><strong>업데이트</strong><p>GitHub 릴리즈에서 새 버전이 있는지 확인합니다.</p><button type="button" onClick={checkForUpdates} disabled={isBusy}>업데이트 확인</button></div>
+        <div><strong>로컬 진행 초기화</strong><p>승인 큐 선택과 마지막 화면 기억만 지웁니다. 설치된 도구나 계정 로그인은 건드리지 않습니다.</p><button type="button" onClick={resetLocalProgress} disabled={isBusy}>진행 상태 초기화</button></div>
       </div>
       <section className="notice-card danger-soft">
         <strong>실행하지 않는 흐름</strong>
