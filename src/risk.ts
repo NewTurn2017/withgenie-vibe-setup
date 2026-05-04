@@ -16,7 +16,7 @@ export const riskTierDescriptions: Record<RiskTier, string> = {
 
 export const approvalDecisionLabels: Record<ApprovalDecision, string> = {
   pending: "대기",
-  approved: "승인됨",
+  approved: "실행 요청됨",
   deferred: "나중에",
   manual: "직접 진행",
   ask_instructor: "강사 도움 요청",

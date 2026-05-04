@@ -20,7 +20,10 @@ export function loadResumeState(): ResumeState {
     return {
       lastUpdatedAt: typeof parsed.lastUpdatedAt === "string" ? parsed.lastUpdatedAt : defaultResumeState.lastUpdatedAt,
       lastCompletedStep: parsed.lastCompletedStep ?? defaultResumeState.lastCompletedStep,
-      activeScreen: parsed.activeScreen ?? defaultResumeState.activeScreen,
+      // Plan, diagnostics, approval queue, and report data are rebuilt at runtime.
+      // Until those objects are persisted too, restoring a deep screen creates
+      // empty approval/report states on fresh app launch.
+      activeScreen: defaultResumeState.activeScreen,
       approvalDecisions: parsed.approvalDecisions ?? {},
     };
   } catch {

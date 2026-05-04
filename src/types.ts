@@ -9,12 +9,13 @@ export type CheckStatus =
 
 export type RiskTier = "safe" | "user_mediated" | "permission_prompt" | "blocked";
 
-export type ActionPhase = "detect" | "external_flow" | "manual_guidance" | "not_automated";
+export type ActionPhase = "detect" | "install" | "external_flow" | "manual_guidance" | "not_automated";
 
 export type ElevationMethod = "none" | "osascript_admin" | "windows_runas" | "user_managed";
 
 export type RecipeStep = {
   id: string;
+  target_os?: string | null;
   label_ko: string;
   description_ko: string;
   verify_command_label: string;
@@ -36,6 +37,7 @@ export type RecipeStep = {
 };
 
 export type SetupPlan = {
+  current_os: string;
   steps: RecipeStep[];
   forbidden_commands: string[];
   security_notes: string[];
@@ -82,6 +84,40 @@ export type HealthReport = {
 };
 
 export type ApprovalDecision = "pending" | "approved" | "deferred" | "manual" | "ask_instructor";
+
+export type ExecutionStatus =
+  | "queued"
+  | "needs_user_confirm"
+  | "running"
+  | "needs_os_consent"
+  | "needs_browser_auth"
+  | "needs_reboot"
+  | "verifying"
+  | "done"
+  | "blocked";
+
+export type ExecuteSetupActionInput = {
+  action_id: string;
+  approval_id: string;
+};
+
+export type ExecutionOutcome = {
+  action_id: string;
+  status: ExecutionStatus;
+  message_ko: string;
+  next_action_ko: string;
+  command_preview?: string | null;
+  docs_url?: string | null;
+};
+
+export type SetupExecutionEvent = {
+  action_id: string;
+  status: ExecutionStatus;
+  kind: "info" | "stdout" | "stderr" | "system";
+  message_ko: string;
+  command_preview?: string | null;
+  docs_url?: string | null;
+};
 
 export type ApprovalCard = {
   id: string;

@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check } from "@tauri-apps/plugin-updater";
-import type { ApprovalCard, ApprovalDecision, CheckStatus, HealthReport, SetupPlan, ToolCheck } from "./types";
+import type { ApprovalCard, ApprovalDecision, CheckStatus, ExecuteSetupActionInput, ExecutionOutcome, HealthReport, SetupExecutionEvent, SetupPlan, ToolCheck } from "./types";
 import { deriveApprovalQueue } from "./approvalQueue";
 import { buildLocalHandoffPacket, formatHandoffPacket } from "./handoffPacket";
 import { approvalDecisionLabels, riskTierClassName, riskTierDescriptions, riskTierLabels } from "./risk";
@@ -12,7 +13,7 @@ import type { LogLine } from "./logView";
 import "./App.css";
 
 type ScreenId = "overview" | "plan" | "diagnostics" | "approval" | "report" | "help";
-type BusyTask = "plan" | "diagnostics" | "report" | "update" | null;
+type BusyTask = "plan" | "diagnostics" | "report" | "update" | "execution" | null;
 type StepState = "done" | "current" | "waiting";
 
 const statusLabels: Record<CheckStatus, string> = {
@@ -44,7 +45,7 @@ function App() {
   const [message, setMessage] = useState("앱을 시작하면 현재 컴퓨터 상태를 안전하게 진단합니다.");
   const [approvalDecisions, setApprovalDecisions] = useState<Record<string, ApprovalDecision>>(initialResumeState.approvalDecisions);
   const [focusedCardId, setFocusedCardId] = useState<string | null>(null);
-  const logLines: LogLine[] = [];
+  const [logLines, setLogLines] = useState<LogLine[]>([]);
 
   const isBusy = busyTask !== null;
   const requiredCount = useMemo(
@@ -95,6 +96,38 @@ function App() {
     });
   }, [activeScreen, approvalDecisions, checks.length, plan]);
 
+  useEffect(() => {
+    let cancelled = false;
+    let cleanup: (() => void) | undefined;
+
+    listen<SetupExecutionEvent>("setup://execution-event", (event) => {
+      if (cancelled) return;
+      setLogLines((current) => [
+        ...current,
+        {
+          kind: event.payload.kind,
+          text: event.payload.command_preview
+            ? `${event.payload.message_ko} (${event.payload.command_preview})`
+            : event.payload.message_ko,
+        },
+      ]);
+    })
+      .then((unlisten) => {
+        cleanup = unlisten;
+      })
+      .catch((error) => {
+        setLogLines((current) => [
+          ...current,
+          { kind: "system", text: `실행 이벤트 연결에 실패했습니다: ${String(error)}` },
+        ]);
+      });
+
+    return () => {
+      cancelled = true;
+      cleanup?.();
+    };
+  }, []);
+
   const navItems = useMemo(
     () => [
       { id: "overview" as ScreenId, label: "시작", helper: "안전 안내 확인", state: (activeScreen === "overview" ? "current" : "done") as StepState },
@@ -136,7 +169,32 @@ function App() {
 
   function setApprovalDecision(cardId: string, decision: ApprovalDecision) {
     setApprovalDecisions((current) => ({ ...current, [cardId]: decision }));
-    setMessage(`승인 큐 항목을 '${approvalDecisionLabels[decision]}' 상태로 바꿨습니다.`);
+    setMessage(`승인 큐 항목을 '${approvalDecisionLabels[decision]}' 상태로 표시했습니다.`);
+  }
+
+  async function refreshDiagnosticsAfterExecution(decisions: Record<string, ApprovalDecision>): Promise<ApprovalCard[]> {
+    const setupPlan = plan ?? await invoke<SetupPlan>("get_setup_plan");
+    if (!plan) {
+      setPlan(setupPlan);
+    }
+    const nextChecks = await invoke<ToolCheck[]>("run_all_diagnostics");
+    setChecks(nextChecks);
+    const nextReport = await invoke<HealthReport>("build_health_report", {
+      input: { checks: nextChecks },
+    });
+    setReport(nextReport);
+
+    const nextQueue = deriveApprovalQueue(setupPlan, nextChecks, decisions);
+    setFocusedCardId(nextQueue[0]?.id ?? null);
+    if (nextQueue.length > 0) {
+      setActiveScreen("approval");
+      setMessage(`${nextQueue.length}개 항목이 남았습니다. 다음 항목으로 계속 진행할 수 있습니다.`);
+    } else {
+      setActiveScreen("diagnostics");
+      setMessage(nextReport.summary.beginner_message);
+    }
+
+    return nextQueue;
   }
 
   async function loadPlan() {
@@ -146,9 +204,58 @@ function App() {
     try {
       const setupPlan = await invoke<SetupPlan>("get_setup_plan");
       setPlan(setupPlan);
-      setMessage("설치 계획을 불러왔습니다. 아직 실제 설치 명령은 실행하지 않았습니다.");
+      setMessage("설치 계획을 불러왔습니다. 원클릭 실행은 허용된 작업만 순서대로 시작합니다.");
     } catch (error) {
       setMessage(`설치 계획을 불러오지 못했습니다: ${String(error)}`);
+    } finally {
+      setBusyTask(null);
+    }
+  }
+
+  async function executeApprovalAction(
+    card: ApprovalCard,
+    autoContinue = false,
+    decisionsBase: Record<string, ApprovalDecision> = approvalDecisions,
+  ) {
+    setFocusedCardId(card.id);
+    const nextDecisions: Record<string, ApprovalDecision> = { ...decisionsBase, [card.id]: "approved" };
+    setApprovalDecisions(nextDecisions);
+    setMessage(`승인 큐 항목을 '${approvalDecisionLabels.approved}' 상태로 표시했습니다.`);
+    setBusyTask("execution");
+    setLogLines((current) => [
+      ...current,
+      { kind: "system", text: `${card.step.label_ko} 작업을 준비합니다.` },
+    ]);
+
+    try {
+      const input: ExecuteSetupActionInput = {
+        action_id: card.step.id,
+        approval_id: card.id,
+      };
+      const outcome = await invoke<ExecutionOutcome>("execute_setup_action", { input });
+      setMessage(outcome.message_ko);
+      setLogLines((current) => [
+        ...current,
+        { kind: outcome.status === "blocked" ? "stderr" : "system", text: outcome.next_action_ko },
+      ]);
+      if (outcome.status === "done" || outcome.status === "needs_reboot") {
+        const nextQueue = await refreshDiagnosticsAfterExecution(nextDecisions);
+        if (autoContinue && outcome.status === "done") {
+          const nextInstallCard = nextQueue.find((nextCard) => nextCard.step.action_phase === "install");
+          if (nextInstallCard) {
+            await executeApprovalAction(nextInstallCard, true, nextDecisions);
+          } else if (nextQueue.length > 0) {
+            setFocusedCardId(nextQueue[0].id);
+            setMessage("설치 단계는 끝났습니다. 이제 브라우저 가입/로그인처럼 사용자가 직접 확인해야 하는 단계가 남았습니다.");
+          }
+        }
+      }
+    } catch (error) {
+      setMessage(`작업을 시작하지 못했습니다: ${String(error)}`);
+      setLogLines((current) => [
+        ...current,
+        { kind: "stderr", text: `작업 시작 실패: ${String(error)}` },
+      ]);
     } finally {
       setBusyTask(null);
     }
@@ -159,13 +266,17 @@ function App() {
     setActiveScreen("diagnostics");
     setMessage("진단 중입니다. 허용된 확인 명령만 실행합니다...");
     try {
+      const setupPlan = plan ?? await invoke<SetupPlan>("get_setup_plan");
+      if (!plan) {
+        setPlan(setupPlan);
+      }
       const nextChecks = await invoke<ToolCheck[]>("run_all_diagnostics");
       setChecks(nextChecks);
       const nextReport = await invoke<HealthReport>("build_health_report", {
         input: { checks: nextChecks },
       });
       setReport(nextReport);
-      const nextQueue = deriveApprovalQueue(plan, nextChecks, approvalDecisions);
+      const nextQueue = deriveApprovalQueue(setupPlan, nextChecks, approvalDecisions);
       if (nextQueue.length > 0) {
         setActiveScreen("approval");
         setMessage(`${nextQueue.length}개 항목에 대해 다음 행동을 선택해야 합니다.`);
@@ -313,7 +424,7 @@ function App() {
           {activeScreen === "overview" && renderOverview()}
           {activeScreen === "plan" && renderPlan(plan, loadPlan, isBusy)}
           {activeScreen === "diagnostics" && renderDiagnostics(checks, buildReport, isBusy)}
-          {activeScreen === "approval" && renderApprovalQueue(approvalQueue, focusedCard, logLines, setApprovalDecision, setFocusedCardId)}
+          {activeScreen === "approval" && renderApprovalQueue(approvalQueue, focusedCard, logLines, setApprovalDecision, executeApprovalAction, setFocusedCardId, busyTask === "execution")}
           {activeScreen === "report" && renderReport(report, checks, handoffPacketText, buildReport, copyReport, copyHandoffPacket, isBusy)}
           {activeScreen === "help" && renderHelp(plan, checkForUpdates, resetLocalProgress, isBusy)}
         </section>
@@ -455,14 +566,19 @@ function renderApprovalQueue(
   focusedCard: ApprovalCard | null,
   lines: LogLine[],
   setDecision: (cardId: string, decision: ApprovalDecision) => void,
+  executeAction: (card: ApprovalCard, autoContinue?: boolean) => void,
   setFocused: (cardId: string) => void,
+  isExecuting: boolean,
 ) {
   return (
     <div className="screen-stack approval-stack">
       <div className="screen-heading">
         <div>
           <p className="eyebrow">승인 큐</p>
-          <h2>자동으로 하지 않고, 먼저 설명하고 선택합니다.</h2>
+          <h2>한 번 시작하면 가능한 설치를 순서대로 진행합니다.</h2>
+        </div>
+        <div className="inline-actions">
+          <button type="button" className="primary" disabled={cards.length === 0 || isExecuting} onClick={() => cards[0] && executeAction(cards[0], true)}>원클릭 셋업 시작</button>
         </div>
       </div>
 
@@ -495,7 +611,7 @@ function renderApprovalQueue(
               </dl>
               <p className="risk-description">{riskTierDescriptions[card.step.risk_tier]}</p>
               <div className="approval-actions">
-                <button type="button" className="primary" onClick={() => setDecision(card.id, "approved")}>승인</button>
+                <button type="button" className="primary" disabled={isExecuting} onClick={() => executeAction(card)}>{primaryApprovalActionLabel(card)}</button>
                 <button type="button" onClick={() => setDecision(card.id, "manual")}>직접 할게요</button>
                 <button type="button" onClick={() => setDecision(card.id, "deferred")}>나중에</button>
                 <button type="button" onClick={() => setDecision(card.id, "ask_instructor")}>강사에게 도움 요청</button>
@@ -508,6 +624,28 @@ function renderApprovalQueue(
       <LogView focusedCard={focusedCard} lines={lines} />
     </div>
   );
+}
+
+function primaryApprovalActionLabel(card: ApprovalCard): string {
+  if (card.step.action_phase === "external_flow") {
+    return "브라우저 가입/로그인 시작";
+  }
+
+  if (card.step.action_phase === "install") {
+    return card.step.risk_tier === "permission_prompt"
+      ? "설치 시작 (권한 창 Yes)"
+      : "설치 시작";
+  }
+
+  if (card.step.risk_tier === "permission_prompt") {
+    return "권한 창에서 Yes로 진행";
+  }
+
+  if (card.step.action_phase === "detect") {
+    return "원클릭 작업 준비";
+  }
+
+  return "다음 단계 시작";
 }
 
 function renderReport(

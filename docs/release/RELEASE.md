@@ -25,6 +25,7 @@ npm run tauri -- signer generate -- -w ~/.tauri/withgenie-vibe-setup.key
 ## 릴리즈 만들기
 
 1. `src-tauri/tauri.conf.json`과 `package.json`의 버전을 올립니다.
+   - README의 직접 다운로드 링크 두 줄(macOS/Windows v버전)도 같은 버전으로 갱신합니다.
 2. 검증을 통과시킵니다.
 
 ```bash

@@ -18,18 +18,58 @@ export function deriveApprovalQueue(
   }
 
   const stepsById = new Map<string, RecipeStep>(plan.steps.map((step) => [step.id, step]));
-  return checks
-    .filter((check) => check.required_for_class && actionStatuses.has(check.status))
-    .map((check) => {
-      const step = stepsById.get(check.id) ?? fallbackStep(check);
-      return {
+  const seenActionIds = new Set<string>();
+  const cards: ApprovalCard[] = [];
+
+  for (const check of checks.filter((item) => item.required_for_class && actionStatuses.has(item.status))) {
+      const step = resolveActionStep(plan, stepsById, check) ?? fallbackStep(check);
+      if (seenActionIds.has(step.id)) {
+        continue;
+      }
+      seenActionIds.add(step.id);
+      cards.push({
         id: check.id,
         step,
         check,
         decision: decisions[check.id] ?? "pending",
         reason_ko: approvalReason(check.status),
-      };
-    });
+      });
+  }
+
+  return cards;
+}
+
+const installActionByCheckId: Record<string, string> = {
+  "node.version": "node.install.windows.winget",
+  "npm.version": "node.install.windows.winget",
+  "pnpm.version": "pnpm.install.windows.npm",
+  "git.version": "git.install.windows.winget",
+};
+
+function actionIdForCheck(check: ToolCheck): string | undefined {
+  if (check.id === "gh.auth.status") {
+    return check.status === "missing" ? "gh.install.windows.winget" : "gh.auth.login";
+  }
+
+  if (check.id === "vercel.whoami") {
+    return check.status === "missing" ? "vercel.install.windows.npm" : "vercel.login";
+  }
+
+  return installActionByCheckId[check.id];
+}
+
+function resolveActionStep(
+  plan: SetupPlan,
+  stepsById: Map<string, RecipeStep>,
+  check: ToolCheck,
+): RecipeStep | undefined {
+  const installActionId = actionIdForCheck(check);
+  const installStep = installActionId ? stepsById.get(installActionId) : undefined;
+  if (installStep && (!installStep.target_os || installStep.target_os === plan.current_os)) {
+    return installStep;
+  }
+
+  return stepsById.get(check.id);
 }
 
 function approvalReason(status: ToolCheck["status"]): string {
