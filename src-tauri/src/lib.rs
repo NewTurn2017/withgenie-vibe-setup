@@ -7,11 +7,16 @@ use tauri::menu::{AboutMetadata, MenuBuilder, SubmenuBuilder};
 use tauri::Emitter;
 use wait_timeout::ChildExt;
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 const RECIPE_VERSION: &str = "2026.05.01";
 const COMMAND_TIMEOUT_SECONDS: u64 = 12;
 const EXECUTION_TIMEOUT_SECONDS: u64 = 20 * 60;
 const NATIVE_MENU_LABELS_KO: [&str; 5] = ["파일", "편집", "보기", "창", "도움말"];
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -1035,15 +1040,13 @@ fn run_allowed_command(step: &RecipeStep) -> CommandEvidence {
 
 fn run_program_with_timeout(program: &str, args: &[&str], timeout: Duration) -> CommandEvidence {
     let start = Instant::now();
-    let mut command = Command::new(program);
-    command
-        .args(args)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+    let mut command = command_for_program(program, args);
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
 
     #[cfg(target_os = "windows")]
     if let Some(path) = refreshed_windows_path() {
         command.env("PATH", path);
+        command.creation_flags(CREATE_NO_WINDOW);
     }
 
     let mut child = match command.spawn() {
@@ -1086,16 +1089,33 @@ fn run_program_with_timeout(program: &str, args: &[&str], timeout: Duration) -> 
     }
 }
 
+fn command_for_program(program: &str, args: &[&str]) -> Command {
+    #[cfg(target_os = "windows")]
+    {
+        if matches!(program, "npm" | "pnpm" | "vercel") {
+            let mut command = Command::new("cmd");
+            command.arg("/C").arg(program).args(args);
+            command.creation_flags(CREATE_NO_WINDOW);
+            return command;
+        }
+    }
+
+    let mut command = Command::new(program);
+    command.args(args);
+    command
+}
+
 #[cfg(target_os = "windows")]
 fn refreshed_windows_path() -> Option<String> {
-    let output = Command::new("powershell")
+    let mut command = Command::new("powershell");
+    command
         .args([
             "-NoProfile",
             "-Command",
             "[Environment]::GetEnvironmentVariable('PATH','Machine') + ';' + [Environment]::GetEnvironmentVariable('PATH','User')",
         ])
-        .output()
-        .ok()?;
+        .creation_flags(CREATE_NO_WINDOW);
+    let output = command.output().ok()?;
 
     if !output.status.success() {
         return None;

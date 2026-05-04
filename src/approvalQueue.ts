@@ -18,22 +18,23 @@ export function deriveApprovalQueue(
   }
 
   const stepsById = new Map<string, RecipeStep>(plan.steps.map((step) => [step.id, step]));
+  const checksById = new Map<string, ToolCheck>(checks.map((check) => [check.id, check]));
   const seenActionIds = new Set<string>();
   const cards: ApprovalCard[] = [];
 
   for (const check of checks.filter((item) => item.required_for_class && actionStatuses.has(item.status))) {
-      const step = resolveActionStep(plan, stepsById, check) ?? fallbackStep(check);
-      if (seenActionIds.has(step.id)) {
-        continue;
-      }
-      seenActionIds.add(step.id);
-      cards.push({
-        id: check.id,
-        step,
-        check,
-        decision: decisions[check.id] ?? "pending",
-        reason_ko: approvalReason(check.status),
-      });
+    const step = resolveActionStep(plan, stepsById, checksById, check) ?? fallbackStep(check);
+    if (seenActionIds.has(step.id)) {
+      continue;
+    }
+    seenActionIds.add(step.id);
+    cards.push({
+      id: check.id,
+      step,
+      check,
+      decision: decisions[check.id] ?? "pending",
+      reason_ko: approvalReason(check.status),
+    });
   }
 
   return cards;
@@ -41,17 +42,31 @@ export function deriveApprovalQueue(
 
 const installActionByCheckId: Record<string, string> = {
   "node.version": "node.install.windows.winget",
-  "npm.version": "node.install.windows.winget",
   "pnpm.version": "pnpm.install.windows.npm",
   "git.version": "git.install.windows.winget",
 };
 
-function actionIdForCheck(check: ToolCheck): string | undefined {
+function isInstalled(check: ToolCheck | undefined): boolean {
+  return check?.status === "installed";
+}
+
+function actionIdForCheck(check: ToolCheck, checksById: Map<string, ToolCheck>): string | undefined {
+  if (check.id === "npm.version") {
+    return isInstalled(checksById.get("node.version")) ? undefined : "node.install.windows.winget";
+  }
+
+  if (check.id === "pnpm.version" && !isInstalled(checksById.get("npm.version"))) {
+    return undefined;
+  }
+
   if (check.id === "gh.auth.status") {
     return check.status === "missing" ? "gh.install.windows.winget" : "gh.auth.login";
   }
 
   if (check.id === "vercel.whoami") {
+    if (!isInstalled(checksById.get("npm.version"))) {
+      return undefined;
+    }
     return check.status === "missing" ? "vercel.install.windows.npm" : "vercel.login";
   }
 
@@ -61,9 +76,10 @@ function actionIdForCheck(check: ToolCheck): string | undefined {
 function resolveActionStep(
   plan: SetupPlan,
   stepsById: Map<string, RecipeStep>,
+  checksById: Map<string, ToolCheck>,
   check: ToolCheck,
 ): RecipeStep | undefined {
-  const installActionId = actionIdForCheck(check);
+  const installActionId = actionIdForCheck(check, checksById);
   const installStep = installActionId ? stepsById.get(installActionId) : undefined;
   if (installStep && (!installStep.target_os || installStep.target_os === plan.current_os)) {
     return installStep;

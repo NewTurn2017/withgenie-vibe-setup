@@ -22,8 +22,8 @@
 
 | 내 컴퓨터 | 받기 |
 | --- | --- |
-| **macOS** (M1/M2/M3/M4 등 최근 Mac) | [위드지니 셋업 받기 (.dmg)](https://github.com/NewTurn2017/withgenie-vibe-setup/releases/download/v0.1.5/withgenie-setup_0.1.5_darwin_aarch64.dmg) |
-| **Windows** 10 / 11 | [위드지니 셋업 받기 (.exe)](https://github.com/NewTurn2017/withgenie-vibe-setup/releases/download/v0.1.5/withgenie-setup_0.1.5_windows_x64-setup.exe) |
+| **macOS** (M1/M2/M3/M4 등 최근 Mac) | [위드지니 셋업 받기 (.dmg)](https://github.com/NewTurn2017/withgenie-vibe-setup/releases/download/v0.1.6/withgenie-setup_0.1.6_darwin_aarch64.dmg) |
+| **Windows** 10 / 11 | [위드지니 셋업 받기 (.exe)](https://github.com/NewTurn2017/withgenie-vibe-setup/releases/download/v0.1.6/withgenie-setup_0.1.6_windows_x64-setup.exe) |
 
 ## 설치하기
 
