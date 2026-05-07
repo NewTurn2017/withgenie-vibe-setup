@@ -131,12 +131,19 @@ Beginner copy: “Vercel 로그인은 브라우저/코드 확인 흐름으로 �
 
 ## 8. Codex 앱
 
-| 플랫폼 | Install | Detect | Verify | Notes |
-| --- | --- | --- | --- | --- |
-| Windows | Microsoft 공식 `Codex Installer.exe` 다운로드 링크 | 시작 메뉴 앱 목록에서 Codex 검색 | 설치 후 시작 메뉴 등록 확인 | 설치 화면과 권한 확인은 사용자가 직접 진행 |
-| macOS | 현재 자동화 비대상 | 앱 설치 여부는 수업 정책에 따라 별도 안내 | - | Windows 수업 흐름 우선 |
+| 플랫폼 | Prerequisite repair | Install | Detect | Verify | Notes |
+| --- | --- | --- | --- | --- | --- |
+| Windows | `Microsoft.VCRedist.2015+.x64`, `Microsoft.EdgeWebView2Runtime` | Microsoft 공식 `Codex Installer.exe` 다운로드 링크 | 시작 메뉴 앱 목록에서 Codex 검색 | 설치 후 시작 메뉴 등록 확인 | 설치 화면과 권한 확인은 사용자가 직접 진행 |
+| macOS | 현재 자동화 비대상 | 현재 자동화 비대상 | 앱 설치 여부는 수업 정책에 따라 별도 안내 | - | Windows 수업 흐름 우선 |
 
-Beginner copy: “Codex 앱 설치 화면이 열리면 안내에 따라 설치만 완료하세요.”
+Codex Windows runtime repair:
+
+| 항목 | Detect | Install/Repair | Verify | 오류 증상 |
+| --- | --- | --- | --- | --- |
+| VC++ Redistributable x64 | PowerShell registry `VisualStudio\14.0\VC\Runtimes\x64` 확인 | `winget install --id Microsoft.VCRedist.2015+.x64 -e` | registry Installed=1/version 확인 | `code=3221225781`, `0xC0000135`, app-server websocket closed |
+| Edge WebView2 Runtime | EdgeUpdate WebView2 Runtime registry 확인 | `winget install --id Microsoft.EdgeWebView2Runtime -e` | WebView2 Runtime version 확인 | Store 앱/데스크톱 앱 실행 화면이 바로 닫힘 |
+
+Beginner copy: “Codex 앱이 처음 실행되며 오류가 나도 괜찮습니다. 앱이 Windows 실행 런타임을 먼저 설치/복구한 뒤 Codex 설치를 이어갑니다.”
 
 ## 9. Supabase CLI
 
@@ -163,6 +170,8 @@ Beginner copy: “Codex 앱 설치 화면이 열리면 안내에 따라 설치�
 | Windows version | PowerShell/CIM version | unsupported 안내 | Windows 10 2004+/Win11 | WSL minimum과 분리 가능 |
 | WinGet | `winget --version` | App Installer/Store registration 안내 | minimum version gate | 첫 로그인/Store 등록 지연 가능 |
 | WinGet source | `winget source list` | source reset/update 안내 | `winget search` 가능 | 조직 정책 차단 가능 |
+| VC++ Redistributable x64 | registry 확인 | WinGet `Microsoft.VCRedist.2015+.x64` | registry Installed=1 | Codex `0xC0000135` 예방 |
+| Edge WebView2 Runtime | registry 확인 | WinGet `Microsoft.EdgeWebView2Runtime` | WebView2 version | Windows 데스크톱 앱 런타임 |
 | Admin ability | elevation probe | 관리자 실행 안내 | elevated command 가능 여부 | UAC consent 필요 |
 
 ## 12. WSL
@@ -201,6 +210,7 @@ offline_cache:
 
 - `vercel login --github` 사용 금지
 - `npm install -g supabase` 사용 금지
+- Codex `0xC0000135`/`3221225781` 복구 흐름에서 VC++ Redistributable과 WebView2 Runtime 확인 누락 금지
 - 앱 자체 PAT/token/password prompt 금지
 - raw shell string interpolation 금지
 - allowlist 없는 arbitrary command 실행 금지
@@ -215,6 +225,7 @@ offline_cache:
 - [ ] WinGet `OpenJS.NodeJS.LTS` manifest version 확인
 - [ ] Git/GitHub CLI/Vercel CLI package ID 확인
 - [ ] Codex 앱 다운로드 링크 확인
+- [ ] Codex Windows runtime package ID 확인: `Microsoft.VCRedist.2015+.x64`, `Microsoft.EdgeWebView2Runtime`
 - [ ] Supabase CLI 공식 설치 방식과 릴리스 asset 이름 확인
 - [ ] Vercel login flow 최신성 확인
 - [ ] WSL docs 최신성 확인

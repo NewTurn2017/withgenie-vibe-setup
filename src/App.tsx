@@ -71,6 +71,7 @@ function friendlyCheckLabel(check: ToolCheck): string {
   if (text.includes("git.version")) return "프로젝트 저장 준비";
   if (text.includes("gh.auth") || text.includes("github") || text.includes("gh cli")) return "GitHub 연결";
   if (text.includes("vercel")) return "Vercel 연결";
+  if (text.includes("vcredist") || text.includes("c++") || text.includes("webview2")) return "Windows 실행 런타임";
   if (text.includes("codex")) return "Codex 앱 준비";
   if (text.includes("supabase")) return "Supabase 연결";
   return check.label;

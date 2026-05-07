@@ -44,6 +44,8 @@ const installActionByCheckId: Record<string, string> = {
   "node.version": "node.install.windows.winget",
   "pnpm.version": "pnpm.install.windows.npm",
   "git.version": "git.install.windows.winget",
+  "windows.vcredist.x64": "windows.vcredist.install.x64.winget",
+  "windows.webview2.runtime": "windows.webview2.install.winget",
 };
 
 function isInstalled(check: ToolCheck | undefined): boolean {
@@ -75,6 +77,12 @@ function actionIdForCheck(
   }
 
   if (check.id === "codex.app.windows") {
+    if (currentOs === "windows" && !isInstalled(checksById.get("windows.vcredist.x64"))) {
+      return "windows.vcredist.install.x64.winget";
+    }
+    if (currentOs === "windows" && !isInstalled(checksById.get("windows.webview2.runtime"))) {
+      return "windows.webview2.install.winget";
+    }
     return "codex.app.install.windows.download";
   }
 

@@ -11,7 +11,7 @@ use wait_timeout::ChildExt;
 use std::os::windows::process::CommandExt;
 
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
-const RECIPE_VERSION: &str = "2026.05.07";
+const RECIPE_VERSION: &str = "2026.05.07.2";
 const COMMAND_TIMEOUT_SECONDS: u64 = 12;
 const EXECUTION_TIMEOUT_SECONDS: u64 = 20 * 60;
 const NATIVE_MENU_LABELS_KO: [&str; 5] = ["파일", "편집", "보기", "창", "도움말"];
@@ -21,6 +21,8 @@ const CODEX_WINDOWS_INSTALLER_URL: &str =
     "https://get.microsoft.com/installer/download/9PLM9XGG6VKS?cid=website_cta_psi";
 const CODEX_WINDOWS_DETECT_SCRIPT: &str = "$app = Get-StartApps | Where-Object { $_.Name -like '*Codex*' } | Select-Object -First 1; if ($app) { $app.Name; exit 0 } Write-Error 'Codex app not found'; exit 1";
 const CODEX_WINDOWS_INSTALL_SCRIPT: &str = "$ErrorActionPreference = 'Stop'; $url = 'https://get.microsoft.com/installer/download/9PLM9XGG6VKS?cid=website_cta_psi'; $installer = Join-Path $env:TEMP 'Codex Installer.exe'; Invoke-WebRequest -Uri $url -OutFile $installer; Start-Process -FilePath $installer -Wait";
+const WINDOWS_VCREDIST_DETECT_SCRIPT: &str = r#"$key = 'HKLM:\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64'; if (Test-Path $key) { $item = Get-ItemProperty $key; if ($item.Installed -eq 1) { Write-Output ('VC++ Redistributable x64 ' + $item.Version); exit 0 } }; Write-Error 'Microsoft Visual C++ 2015-2022 Redistributable x64 not found'; exit 1"#;
+const WINDOWS_WEBVIEW2_DETECT_SCRIPT: &str = r#"$paths = @('HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}', 'HKLM:\SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}', 'HKCU:\SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'); foreach ($path in $paths) { if (Test-Path $path) { $item = Get-ItemProperty $path; if ($item.pv) { Write-Output ('WebView2 Runtime ' + $item.pv); exit 0 } } }; Write-Error 'Microsoft Edge WebView2 Runtime not found'; exit 1"#;
 const SUPABASE_WINDOWS_INSTALL_SCRIPT: &str = "$ErrorActionPreference = 'Stop'; $installDir = Join-Path $env:LOCALAPPDATA 'Programs\\Supabase'; New-Item -ItemType Directory -Force -Path $installDir | Out-Null; $headers = @{ 'User-Agent' = 'Vibe Coding Setup' }; $release = Invoke-RestMethod -Headers $headers -Uri 'https://api.github.com/repos/supabase/cli/releases/latest'; $asset = $release.assets | Where-Object { $_.name -eq 'supabase_windows_amd64.tar.gz' } | Select-Object -First 1; if (-not $asset) { throw 'Supabase Windows x64 package not found' }; $archive = Join-Path $env:TEMP $asset.name; Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $archive; tar -xzf $archive -C $installDir; $exe = Join-Path $installDir 'supabase.exe'; if (-not (Test-Path $exe)) { $found = Get-ChildItem $installDir -Recurse -Filter 'supabase.exe' | Select-Object -First 1; if ($found) { Copy-Item $found.FullName $exe -Force } }; if (-not (Test-Path $exe)) { throw 'supabase.exe not found after extraction' }; $userPath = [Environment]::GetEnvironmentVariable('Path', 'User'); if ((($userPath -split ';') -notcontains $installDir)) { [Environment]::SetEnvironmentVariable('Path', (($userPath.TrimEnd(';') + ';' + $installDir).TrimStart(';')), 'User') }; & $exe --version";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -575,6 +577,116 @@ fn allowed_commands() -> Vec<RecipeStep> {
             requires_elevation_method: ElevationMethod::UserManaged,
         },
         RecipeStep {
+            id: "windows.vcredist.x64",
+            target_os: Some("windows"),
+            label_ko: "Windows C++ 런타임 확인",
+            description_ko: "Codex app-server 실행에 필요한 Microsoft Visual C++ 2015-2022 Redistributable x64를 확인합니다.",
+            program: "powershell",
+            args: &["-NoProfile", "-Command", WINDOWS_VCREDIST_DETECT_SCRIPT],
+            required_for_class: cfg!(target_os = "windows"),
+            requires_consent: false,
+            may_require_elevation: false,
+            requires_browser: false,
+            required_version_hint: None,
+            docs_url: "https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist",
+            risk_tier: RiskTier::Safe,
+            action_phase: ActionPhase::Detect,
+            approval_copy_ko: "현재 상태만 확인하며 컴퓨터 설정을 바꾸지 않습니다.",
+            expected_permission_prompt_ko: "권한 창이 나타나지 않습니다.",
+            package_source: None,
+            rollback_note_ko: "변경 사항이 없어 되돌릴 작업이 없습니다.",
+            support_handoff_ko: "Codex 오류 code=3221225781 또는 0xC0000135가 보이면 VC++ Redistributable x64를 재설치하세요.",
+            command_preview: "PowerShell VC++ Redistributable x64 registry check",
+            requires_elevation_method: ElevationMethod::None,
+        },
+        RecipeStep {
+            id: "windows.vcredist.install.x64.winget",
+            target_os: Some("windows"),
+            label_ko: "Windows C++ 런타임 설치/복구",
+            description_ko: "Codex app-server가 DLL을 찾지 못해 종료되는 0xC0000135 계열 오류를 막기 위해 VC++ Redistributable x64를 설치/복구합니다.",
+            program: "winget",
+            args: &[
+                "install",
+                "--id",
+                "Microsoft.VCRedist.2015+.x64",
+                "-e",
+                "--accept-package-agreements",
+                "--accept-source-agreements",
+                "--disable-interactivity",
+                "--silent",
+            ],
+            required_for_class: false,
+            requires_consent: true,
+            may_require_elevation: true,
+            requires_browser: false,
+            required_version_hint: None,
+            docs_url: "https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist",
+            risk_tier: RiskTier::PermissionPrompt,
+            action_phase: ActionPhase::Install,
+            approval_copy_ko: "Codex 실행 오류(code=3221225781/0xC0000135)를 예방하기 위해 Microsoft VC++ 런타임을 설치/복구합니다.",
+            expected_permission_prompt_ko: "Windows 사용자 계정 컨트롤(UAC)에서 설치 권한을 물을 수 있습니다. 자동 클릭은 하지 않습니다.",
+            package_source: Some("winget: Microsoft.VCRedist.2015+.x64"),
+            rollback_note_ko: "Windows 설정 > 앱 또는 winget uninstall --id Microsoft.VCRedist.2015+.x64 으로 제거할 수 있습니다.",
+            support_handoff_ko: "winget 설치 로그와 VC++ Redistributable x64 레지스트리 검증 결과를 확인하세요.",
+            command_preview: "winget install --id Microsoft.VCRedist.2015+.x64 -e --accept-package-agreements --accept-source-agreements --disable-interactivity --silent",
+            requires_elevation_method: ElevationMethod::WindowsRunas,
+        },
+        RecipeStep {
+            id: "windows.webview2.runtime",
+            target_os: Some("windows"),
+            label_ko: "Windows WebView2 런타임 확인",
+            description_ko: "Codex와 Windows 데스크톱 앱 실행에 필요한 Microsoft Edge WebView2 Runtime을 확인합니다.",
+            program: "powershell",
+            args: &["-NoProfile", "-Command", WINDOWS_WEBVIEW2_DETECT_SCRIPT],
+            required_for_class: cfg!(target_os = "windows"),
+            requires_consent: false,
+            may_require_elevation: false,
+            requires_browser: false,
+            required_version_hint: None,
+            docs_url: "https://developer.microsoft.com/en-us/microsoft-edge/webview2/",
+            risk_tier: RiskTier::Safe,
+            action_phase: ActionPhase::Detect,
+            approval_copy_ko: "현재 상태만 확인하며 컴퓨터 설정을 바꾸지 않습니다.",
+            expected_permission_prompt_ko: "권한 창이 나타나지 않습니다.",
+            package_source: None,
+            rollback_note_ko: "변경 사항이 없어 되돌릴 작업이 없습니다.",
+            support_handoff_ko: "Codex 또는 데스크톱 앱 화면이 바로 닫히면 WebView2 Runtime 설치 상태를 확인하세요.",
+            command_preview: "PowerShell WebView2 Runtime registry check",
+            requires_elevation_method: ElevationMethod::None,
+        },
+        RecipeStep {
+            id: "windows.webview2.install.winget",
+            target_os: Some("windows"),
+            label_ko: "Windows WebView2 런타임 설치/복구",
+            description_ko: "Microsoft Edge WebView2 Runtime을 설치/복구합니다.",
+            program: "winget",
+            args: &[
+                "install",
+                "--id",
+                "Microsoft.EdgeWebView2Runtime",
+                "-e",
+                "--accept-package-agreements",
+                "--accept-source-agreements",
+                "--disable-interactivity",
+                "--silent",
+            ],
+            required_for_class: false,
+            requires_consent: true,
+            may_require_elevation: true,
+            requires_browser: false,
+            required_version_hint: None,
+            docs_url: "https://developer.microsoft.com/en-us/microsoft-edge/webview2/",
+            risk_tier: RiskTier::PermissionPrompt,
+            action_phase: ActionPhase::Install,
+            approval_copy_ko: "Codex와 Windows 데스크톱 앱 실행에 필요한 WebView2 Runtime을 설치/복구합니다.",
+            expected_permission_prompt_ko: "Windows 사용자 계정 컨트롤(UAC)에서 설치 권한을 물을 수 있습니다. 자동 클릭은 하지 않습니다.",
+            package_source: Some("winget: Microsoft.EdgeWebView2Runtime"),
+            rollback_note_ko: "Windows 설정 > 앱 또는 winget uninstall --id Microsoft.EdgeWebView2Runtime 으로 제거할 수 있습니다.",
+            support_handoff_ko: "winget 설치 로그와 WebView2 Runtime 레지스트리 검증 결과를 확인하세요.",
+            command_preview: "winget install --id Microsoft.EdgeWebView2Runtime -e --accept-package-agreements --accept-source-agreements --disable-interactivity --silent",
+            requires_elevation_method: ElevationMethod::WindowsRunas,
+        },
+        RecipeStep {
             id: "codex.app.windows",
             target_os: Some("windows"),
             label_ko: "Codex 앱 확인",
@@ -955,6 +1067,8 @@ fn execution_verify_step_id(action_id: &str) -> Option<&'static str> {
         "node.install.windows.winget" => Some("node.version"),
         "pnpm.install.windows.npm" => Some("pnpm.version"),
         "git.install.windows.winget" => Some("git.version"),
+        "windows.vcredist.install.x64.winget" => Some("windows.vcredist.x64"),
+        "windows.webview2.install.winget" => Some("windows.webview2.runtime"),
         "codex.app.install.windows.download" => Some("codex.app.windows"),
         "supabase.install.windows.standalone" => Some("supabase.version"),
         "supabase.install.macos.brew" => Some("supabase.version"),
@@ -1765,6 +1879,7 @@ fn get_setup_plan() -> AppPlan {
             "이 프로그램은 비밀번호를 묻지 않습니다.",
             "GitHub와 Vercel 로그인은 공식 브라우저 흐름만 사용합니다.",
             "Supabase CLI는 공식 문서 기준으로 npm 전역 설치를 사용하지 않습니다.",
+            "Codex Windows 실행 오류 0xC0000135 예방을 위해 VC++ Redistributable과 WebView2 Runtime을 확인합니다.",
             "모든 명령은 allowlist와 structured args로만 실행합니다.",
             "리포트 export 전 민감정보를 가립니다.",
         ],
@@ -2245,6 +2360,10 @@ mod tests {
             .expect("Windows GitHub CLI install recipe should exist");
         let vercel_install = find_allowed_command("vercel.install.windows.npm")
             .expect("Windows Vercel CLI install recipe should exist");
+        let vcredist_install = find_allowed_command("windows.vcredist.install.x64.winget")
+            .expect("Windows VC++ runtime install recipe should exist");
+        let webview2_install = find_allowed_command("windows.webview2.install.winget")
+            .expect("Windows WebView2 runtime install recipe should exist");
         let codex_install = find_allowed_command("codex.app.install.windows.download")
             .expect("Windows Codex app install recipe should exist");
         let supabase_install = find_allowed_command("supabase.install.windows.standalone")
@@ -2259,6 +2378,14 @@ mod tests {
             Some("pnpm.version")
         );
         assert_eq!(
+            execution_verify_step_id(vcredist_install.id),
+            Some("windows.vcredist.x64")
+        );
+        assert_eq!(
+            execution_verify_step_id(webview2_install.id),
+            Some("windows.webview2.runtime")
+        );
+        assert_eq!(
             execution_verify_step_id(codex_install.id),
             Some("codex.app.windows")
         );
@@ -2269,6 +2396,12 @@ mod tests {
         assert!(node_install.command_preview.contains("OpenJS.NodeJS.LTS"));
         assert!(gh_install.command_preview.contains("GitHub.cli"));
         assert!(vercel_install.command_preview.contains("vercel@latest"));
+        assert!(vcredist_install
+            .command_preview
+            .contains("Microsoft.VCRedist.2015+.x64"));
+        assert!(webview2_install
+            .command_preview
+            .contains("Microsoft.EdgeWebView2Runtime"));
         assert!(codex_install.docs_url.contains("9PLM9XGG6VKS"));
         assert!(supabase_install
             .command_preview
@@ -2282,9 +2415,29 @@ mod tests {
             ElevationMethod::None
         );
         assert_eq!(
+            vcredist_install.requires_elevation_method,
+            ElevationMethod::WindowsRunas
+        );
+        assert_eq!(
+            webview2_install.requires_elevation_method,
+            ElevationMethod::WindowsRunas
+        );
+        assert_eq!(
             supabase_install.requires_elevation_method,
             ElevationMethod::None
         );
+    }
+
+    #[test]
+    fn codex_windows_runtime_recipes_cover_0xc0000135_repair() {
+        let vcredist = find_allowed_command("windows.vcredist.x64")
+            .expect("VC++ runtime diagnostic recipe should exist");
+        let webview2 = find_allowed_command("windows.webview2.runtime")
+            .expect("WebView2 runtime diagnostic recipe should exist");
+
+        assert!(vcredist.support_handoff_ko.contains("0xC0000135"));
+        assert!(vcredist.support_handoff_ko.contains("3221225781"));
+        assert!(webview2.description_ko.contains("WebView2"));
     }
 
     #[test]

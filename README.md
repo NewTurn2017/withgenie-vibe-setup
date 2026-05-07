@@ -12,10 +12,10 @@ WithGenie에서 만든 초보자용 바이브코딩 수업 준비 도우미입�
 
 ## 무엇을 도와주나요?
 
-- **수업에 필요한 도구가 깔려 있는지 확인합니다.** Node.js, Git, GitHub 로그인, Vercel 로그인, Codex 앱, Supabase CLI 같은 항목을 한국어로 풀어서 보여 드려요.
+- **수업에 필요한 도구가 깔려 있는지 확인합니다.** Node.js, Git, GitHub 로그인, Vercel 로그인, Windows 실행 런타임, Codex 앱, Supabase CLI 같은 항목을 한국어로 풀어서 보여 드려요.
 - **원클릭 셋업을 지향합니다.** 큰 **1분 점검** 버튼을 누르면 가능한 설치 작업이 순서대로 진행됩니다. Windows 권한 창이 뜨면 사용자가 직접 **예**만 누르면 됩니다.
 - **계정 가입/로그인은 공식 화면으로 안내합니다.** GitHub와 Vercel처럼 가입이나 브라우저 로그인이 필요한 부분은 앱이 비밀번호를 받지 않고 공식 흐름으로 안내합니다.
-- **Codex 앱과 Supabase CLI도 준비합니다.** Windows에서는 Microsoft 공식 Codex 앱 설치 파일을 열고, Supabase CLI는 공식 릴리스의 독립 실행 파일 방식으로 준비합니다.
+- **Codex 앱과 Supabase CLI도 준비합니다.** Windows에서는 Codex 실행 오류 `code=3221225781` / `0xC0000135` 예방을 위해 VC++ Redistributable과 WebView2 Runtime을 먼저 확인하고, Microsoft 공식 Codex 앱 설치 파일을 엽니다. Supabase CLI는 공식 릴리스의 독립 실행 파일 방식으로 준비합니다.
 - **막히면 강사님께 한 번에 보냅니다.** 진단 결과를 한 장의 메모(핸드오프 패킷)로 만들고 클립보드에 복사할 수 있습니다. 비밀번호, 이메일, 홈 폴더 경로, 토큰 같은 민감한 글자는 자동으로 가려서 보냅니다.
 - **앱을 끄고 다시 켜도 덜 헷갈립니다.** 승인 결정은 저장되고, 화면 데이터는 다시 진단해서 최신 상태로 복원합니다.
 
@@ -25,8 +25,8 @@ WithGenie에서 만든 초보자용 바이브코딩 수업 준비 도우미입�
 
 | 내 컴퓨터 | 받기 |
 | --- | --- |
-| **macOS** (M1/M2/M3/M4 등 최근 Mac) | [Vibe Coding Setup 받기 (.dmg)](https://github.com/NewTurn2017/withgenie-vibe-setup/releases/download/v0.1.11/withgenie-setup_0.1.11_darwin_aarch64.dmg) |
-| **Windows** 10 / 11 | [Vibe Coding Setup 받기 (.exe)](https://github.com/NewTurn2017/withgenie-vibe-setup/releases/download/v0.1.11/withgenie-setup_0.1.11_windows_x64-setup.exe) |
+| **macOS** (M1/M2/M3/M4 등 최근 Mac) | [Vibe Coding Setup 받기 (.dmg)](https://github.com/NewTurn2017/withgenie-vibe-setup/releases/download/v0.1.12/withgenie-setup_0.1.12_darwin_aarch64.dmg) |
+| **Windows** 10 / 11 | [Vibe Coding Setup 받기 (.exe)](https://github.com/NewTurn2017/withgenie-vibe-setup/releases/download/v0.1.12/withgenie-setup_0.1.12_windows_x64-setup.exe) |
 
 ## 설치하기
 
@@ -76,6 +76,7 @@ WithGenie에서 만든 초보자용 바이브코딩 수업 준비 도우미입�
 
 - 비밀번호, OAuth 토큰, 개인 키를 앱이 직접 입력받지 않습니다. GitHub와 Vercel 로그인은 항상 공식 사이트의 브라우저 로그인 창으로 안내합니다.
 - Supabase CLI는 공식 문서 기준에 맞춰 `npm install -g supabase` 방식으로 전역 설치하지 않습니다.
+- Codex Windows 오류 `0xC0000135` 복구를 위해 VC++ Redistributable과 WebView2 Runtime만 공식 WinGet 패키지로 설치/복구합니다.
 - 컴퓨터 설정을 마음대로 바꾸지 않습니다. 실제 설치나 권한이 필요한 작업은 화면에서 사용자가 시작해야 하며, Windows UAC의 **예** 클릭은 사용자가 직접 해야 합니다.
 - 리포트나 핸드오프 패킷을 외부 서버로 보내지 않습니다. 클립보드 복사 또는 사용자가 직접 저장하는 흐름만 사용합니다.
 

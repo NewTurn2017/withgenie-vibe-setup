@@ -44,6 +44,10 @@ const plan: SetupPlan = {
     step("pnpm.install.windows.npm", "install"),
     step("vercel.whoami"),
     step("vercel.install.windows.npm", "install"),
+    step("windows.vcredist.x64"),
+    step("windows.vcredist.install.x64.winget", "install"),
+    step("windows.webview2.runtime"),
+    step("windows.webview2.install.winget", "install"),
     step("codex.app.windows"),
     step("codex.app.install.windows.download", "install"),
     step("supabase.version"),
@@ -98,12 +102,26 @@ function actionIds(statuses: Array<[string, CheckStatus]>, decisions: Record<str
 
 {
   const ids = actionIds([
+    ["windows.vcredist.x64", "installed"],
+    ["windows.webview2.runtime", "installed"],
     ["codex.app.windows", "missing"],
     ["supabase.version", "missing"],
   ]);
 
-  assert(ids.some(([, actionId]) => actionId === "codex.app.install.windows.download"), "Codex app should open the Microsoft installer step when missing");
+  assert(ids.some(([, actionId]) => actionId === "codex.app.install.windows.download"), "Codex app should open the Microsoft installer step when runtimes are ready");
   assert(ids.some(([, actionId]) => actionId === "supabase.install.windows.standalone"), "Supabase CLI should use the Windows standalone installer step when missing");
+}
+
+{
+  const ids = actionIds([
+    ["windows.vcredist.x64", "missing"],
+    ["windows.webview2.runtime", "missing"],
+    ["codex.app.windows", "missing"],
+  ]);
+
+  assert(ids.some(([, actionId]) => actionId === "windows.vcredist.install.x64.winget"), "Codex flow should repair VC++ runtime before Codex install");
+  assert(ids.some(([, actionId]) => actionId === "windows.webview2.install.winget"), "Codex flow should repair WebView2 runtime before Codex install");
+  assert(!ids.some(([, actionId]) => actionId === "codex.app.install.windows.download"), "Codex installer should wait until Windows runtimes are installed");
 }
 
 console.log("approvalQueue regression tests passed");
