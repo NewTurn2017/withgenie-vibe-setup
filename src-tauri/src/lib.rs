@@ -2160,6 +2160,38 @@ fn preview_redaction(sample: String) -> String {
     redact(&sample)
 }
 
+#[tauri::command]
+fn open_uninstall_settings() -> Result<String, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let mut command = Command::new("cmd");
+        command
+            .args(["/C", "start", "", "ms-settings:appsfeatures"])
+            .creation_flags(CREATE_NO_WINDOW);
+        command
+            .status()
+            .map_err(|error| format!("Windows 앱 제거 설정을 열지 못했습니다: {error}"))?;
+        return Ok("Windows 설정의 '설치된 앱' 화면을 열었습니다. 목록에서 Vibe Coding Setup을 찾아 제거를 누르세요.".to_string());
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open")
+            .arg("/Applications")
+            .status()
+            .map_err(|error| format!("응용 프로그램 폴더를 열지 못했습니다: {error}"))?;
+        return Ok(
+            "응용 프로그램 폴더를 열었습니다. Vibe Coding Setup 앱을 휴지통으로 이동하면 됩니다."
+                .to_string(),
+        );
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    {
+        Err("현재 운영체제에서는 자동으로 제거 설정을 열 수 없습니다. 운영체제의 앱 관리 화면에서 Vibe Coding Setup을 제거하세요.".to_string())
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -2177,7 +2209,8 @@ pub fn run() {
             run_all_diagnostics,
             build_health_report,
             build_handoff_packet,
-            preview_redaction
+            preview_redaction,
+            open_uninstall_settings
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -2490,6 +2523,27 @@ mod tests {
             supabase_install.requires_elevation_method,
             ElevationMethod::None
         );
+    }
+
+    #[test]
+    fn install_recipes_include_human_rollback_notes() {
+        for step in allowed_commands()
+            .into_iter()
+            .filter(|step| step.action_phase == ActionPhase::Install)
+        {
+            assert!(
+                !step.rollback_note_ko.trim().is_empty(),
+                "install recipe {} needs a rollback note",
+                step.id
+            );
+            assert!(
+                step.rollback_note_ko.contains("uninstall")
+                    || step.rollback_note_ko.contains("제거")
+                    || step.rollback_note_ko.contains("삭제"),
+                "install recipe {} rollback note should explain removal",
+                step.id
+            );
+        }
     }
 
     #[test]

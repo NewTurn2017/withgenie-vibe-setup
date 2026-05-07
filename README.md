@@ -25,8 +25,8 @@ WithGenie에서 만든 초보자용 바이브코딩 수업 준비 도우미입�
 
 | 내 컴퓨터 | 받기 |
 | --- | --- |
-| **macOS** (M1/M2/M3/M4 등 최근 Mac) | [Vibe Coding Setup 받기 (.dmg)](https://github.com/NewTurn2017/withgenie-vibe-setup/releases/download/v0.1.14/withgenie-setup_0.1.14_darwin_aarch64.dmg) |
-| **Windows** 10 / 11 | [Vibe Coding Setup 받기 (.exe)](https://github.com/NewTurn2017/withgenie-vibe-setup/releases/download/v0.1.14/withgenie-setup_0.1.14_windows_x64-setup.exe) |
+| **macOS** (M1/M2/M3/M4 등 최근 Mac) | [Vibe Coding Setup 받기 (.dmg)](https://github.com/NewTurn2017/withgenie-vibe-setup/releases/download/v0.1.15/withgenie-setup_0.1.15_darwin_aarch64.dmg) |
+| **Windows** 10 / 11 | [Vibe Coding Setup 받기 (.exe)](https://github.com/NewTurn2017/withgenie-vibe-setup/releases/download/v0.1.15/withgenie-setup_0.1.15_windows_x64-setup.exe) |
 
 ## 설치하기
 
@@ -53,6 +53,12 @@ WithGenie에서 만든 초보자용 바이브코딩 수업 준비 도우미입�
    - 원하면 각 카드에서 **직접 할게요 / 나중에 / 강사에게 도움 요청**으로 표시할 수 있습니다.
 4. 모든 항목을 정리했으면 **리포트** 화면으로 가서 **강사용 패킷 복사** 버튼을 누르세요. 클립보드에 복사된 내용을 강사님께 보내면 끝납니다.
 
+## 제거하기
+
+- **Vibe Coding Setup 프로그램 제거**: 앱의 **도움말 → 앱 제거 화면 열기** 를 누르거나, Windows에서는 **설정 → 앱 → 설치된 앱 → Vibe Coding Setup → 제거** 를 선택하세요.
+- **설치된 개발 도구 되돌리기**: Node.js, Git, VC++ Runtime, WebView2 Runtime은 다른 프로그램도 사용할 수 있으므로 앱이 자동으로 삭제하지 않습니다. 도움말의 **제거 안내 복사** 또는 **도구별 제거 방법 보기**에서 필요한 항목만 직접 제거하세요.
+- **계정 연결 해제**: 원하면 새 터미널에서 `gh auth logout`, `vercel logout`, `supabase logout`을 실행해 CLI 로그인만 해제할 수 있습니다.
+
 ## 화면 살펴보기
 
 | 화면 | 무엇을 하는 곳? |
@@ -62,7 +68,7 @@ WithGenie에서 만든 초보자용 바이브코딩 수업 준비 도우미입�
 | **진단 결과** | 항목별로 "준비됨", "설치 필요" 같은 상태와 짧은 설명을 보여 줍니다. |
 | **승인 큐** | 손이 가야 하는 항목만 모아 카드로 정리합니다. 화면 아래쪽에는 어떤 명령이 실행될지 미리 볼 수 있는 검은 출력 창이 있습니다. |
 | **리포트** | 강사님께 그대로 보낼 수 있는 한국어 요약을 만들어 줍니다. |
-| **도움말** | 막혔을 때, 업데이트가 있을 때, 진행 상태를 처음부터 다시 시작하고 싶을 때 사용합니다. |
+| **도움말** | 막혔을 때, 업데이트/제거가 필요할 때, 진행 상태를 처음부터 다시 시작하고 싶을 때 사용합니다. |
 
 ## 자주 보이는 상태가 무슨 뜻인가요?
 

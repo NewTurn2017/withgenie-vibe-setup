@@ -106,6 +106,33 @@ function primaryActionLabelForQueue(
   return checksCount > 0 ? "1분 점검 다시 하기" : "1분 점검 시작";
 }
 
+function installRollbackSteps(plan: SetupPlan | null) {
+  return plan?.steps.filter((step) => step.action_phase === "install" && step.rollback_note_ko.trim().length > 0) ?? [];
+}
+
+function buildUninstallGuideText(plan: SetupPlan | null): string {
+  const rollbackSteps = installRollbackSteps(plan);
+  return [
+    "Vibe Coding Setup 제거 안내",
+    "",
+    "1) 프로그램 자체 제거",
+    "- Windows: 설정 > 앱 > 설치된 앱 > Vibe Coding Setup > 제거",
+    "- macOS: 응용 프로그램 폴더에서 Vibe Coding Setup.app을 휴지통으로 이동",
+    "",
+    "2) 이 앱으로 준비한 도구 되돌리기(필요할 때만)",
+    rollbackSteps.length > 0
+      ? rollbackSteps.map((step) => `- ${step.label_ko}: ${step.rollback_note_ko}`).join("\n")
+      : "- 설치 계획을 먼저 불러오면 도구별 제거 안내가 표시됩니다.",
+    "",
+    "3) 계정 연결 해제(원할 때만)",
+    "- GitHub CLI: gh auth logout",
+    "- Vercel CLI: vercel logout",
+    "- Supabase CLI: supabase logout",
+    "",
+    "주의: Node.js, Git, VC++ Runtime, WebView2 Runtime은 다른 프로그램도 사용할 수 있습니다. 수업 도구만 지우려면 pnpm/Vercel/Supabase처럼 범위가 좁은 항목부터 제거하세요.",
+  ].join("\n");
+}
+
 function App() {
   const initialResumeState = useMemo(() => loadResumeState(), []);
   const [activeScreen, setActiveScreen] = useState<ScreenId>(initialResumeState.activeScreen);
@@ -519,6 +546,28 @@ function App() {
     }
   }
 
+  async function copyUninstallGuide() {
+    try {
+      const setupPlan = plan ?? await invoke<SetupPlan>("get_setup_plan");
+      if (!plan) {
+        setPlan(setupPlan);
+      }
+      await navigator.clipboard.writeText(buildUninstallGuideText(setupPlan));
+      setMessage("제거 안내를 클립보드에 복사했습니다. 필요한 항목만 골라서 실행하세요.");
+    } catch (error) {
+      setMessage(`제거 안내를 복사하지 못했습니다: ${String(error)}`);
+    }
+  }
+
+  async function openUninstallSettings() {
+    try {
+      const result = await invoke<string>("open_uninstall_settings");
+      setMessage(result);
+    } catch (error) {
+      setMessage(`앱 제거 설정을 열지 못했습니다: ${String(error)}`);
+    }
+  }
+
   async function openExternalLink(link: SocialLink) {
     const hasTauriRuntime = Boolean((window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__);
     try {
@@ -616,7 +665,7 @@ function App() {
           {activeScreen === "diagnostics" && renderDiagnostics(checks, buildReport, isBusy)}
           {activeScreen === "approval" && renderApprovalQueue(approvalQueue, focusedCard, logLines, executionStatuses, setApprovalDecision, executeApprovalAction, setFocusedCardId, runDiagnostics, busyTask === "execution")}
           {activeScreen === "report" && renderReport(report, checks, handoffPacketText, buildReport, copyReport, copyHandoffPacket, isBusy)}
-          {activeScreen === "help" && renderHelp(plan, checkForUpdates, resetLocalProgress, isBusy)}
+          {activeScreen === "help" && renderHelp(plan, checkForUpdates, resetLocalProgress, openUninstallSettings, copyUninstallGuide, isBusy)}
         </section>
       </div>
 
@@ -952,7 +1001,16 @@ function renderReport(
   );
 }
 
-function renderHelp(plan: SetupPlan | null, checkForUpdates: () => void, resetLocalProgress: () => void, isBusy: boolean) {
+function renderHelp(
+  plan: SetupPlan | null,
+  checkForUpdates: () => void,
+  resetLocalProgress: () => void,
+  openUninstallSettings: () => void,
+  copyUninstallGuide: () => void,
+  isBusy: boolean,
+) {
+  const rollbackSteps = installRollbackSteps(plan);
+
   return (
     <div className="screen-stack help-stack">
       <div className="screen-heading">
@@ -966,6 +1024,33 @@ function renderHelp(plan: SetupPlan | null, checkForUpdates: () => void, resetLo
         <div><strong>복구 필요</strong><p>표시된 항목의 복구 안내를 따라 새 터미널에서 다시 확인하세요.</p></div>
         <div><strong>강사 지원 필요</strong><p>리포트 내용을 강사 또는 조교에게 전달하세요.</p></div>
         <div><strong>업데이트</strong><p>새 버전이 있는지 확인합니다.</p><button type="button" onClick={checkForUpdates} disabled={isBusy}>업데이트 확인</button></div>
+        <div>
+          <strong>프로그램 제거</strong>
+          <p>Vibe Coding Setup 자체를 지울 때는 운영체제의 앱 제거 화면을 엽니다. 설치한 개발 도구는 자동으로 지우지 않습니다.</p>
+          <div className="button-row">
+            <button type="button" onClick={openUninstallSettings} disabled={isBusy}>앱 제거 화면 열기</button>
+            <button type="button" onClick={copyUninstallGuide} disabled={isBusy}>제거 안내 복사</button>
+          </div>
+        </div>
+        <div className="uninstall-card">
+          <strong>설치 도구 되돌리기</strong>
+          <p>Node.js나 Git은 다른 앱도 쓸 수 있어 자동 삭제하지 않습니다. 필요할 때만 아래 안내를 보고 직접 제거하세요.</p>
+          <details>
+            <summary>도구별 제거 방법 보기</summary>
+            {rollbackSteps.length > 0 ? (
+              <ul className="rollback-list">
+                {rollbackSteps.map((step) => (
+                  <li key={step.id}>
+                    <strong>{step.label_ko}</strong>
+                    <span>{step.rollback_note_ko}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p>설치 계획을 먼저 불러오면 제거 안내가 표시됩니다.</p>
+            )}
+          </details>
+        </div>
         <div><strong>로컬 진행 초기화</strong><p>승인 큐 선택과 마지막 화면 기억만 지웁니다. 설치된 도구나 계정 로그인은 건드리지 않습니다.</p><button type="button" onClick={resetLocalProgress} disabled={isBusy}>진행 상태 초기화</button></div>
       </div>
       <section className="notice-card danger-soft">

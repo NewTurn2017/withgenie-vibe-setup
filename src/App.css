@@ -557,6 +557,44 @@ code {
   align-content: start;
 }
 
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.uninstall-card details {
+  margin-top: 0.55rem;
+}
+
+.uninstall-card summary {
+  cursor: pointer;
+  color: #2452a6;
+  font-weight: 900;
+}
+
+.rollback-list {
+  display: grid;
+  gap: 0.48rem;
+  margin: 0.7rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rollback-list li {
+  display: grid;
+  gap: 0.18rem;
+  border-radius: 0.72rem;
+  padding: 0.58rem;
+  background: #f2f6ff;
+}
+
+.rollback-list span {
+  color: #5b6a86;
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
 .step-item {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
