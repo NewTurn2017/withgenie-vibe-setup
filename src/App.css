@@ -809,17 +809,81 @@ footer {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   gap: 1.15rem;
-  width: min(520px, calc(100vw - 2rem));
+  width: min(620px, calc(100vw - 2rem));
   padding: 1.35rem;
+}
+
+.progress-modal-copy {
+  display: grid;
+  gap: 0.58rem;
+}
+
+.progress-detail {
+  border-radius: 1rem;
+  padding: 0.62rem 0.78rem;
+  background: #eef4ff;
+  color: #1f57c8;
+  font-weight: 900;
+}
+
+.progress-track {
+  overflow: hidden;
+  height: 0.72rem;
+  border-radius: 999px;
+  background: #e4ebfb;
+  box-shadow: inset 0 0 0 1px rgba(37, 88, 217, 0.08);
+}
+
+.progress-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #2558d9, #6d3ff3);
+  transition: width 0.42s ease;
 }
 
 .progress-modal ol {
   display: grid;
   gap: 0.42rem;
   margin: 0.9rem 0 0;
-  padding-left: 1.35rem;
+  padding: 0;
+  list-style: none;
   color: #40526e;
   font-weight: 800;
+}
+
+.progress-step {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  opacity: 0.56;
+}
+
+.progress-step span {
+  display: grid;
+  place-items: center;
+  width: 1.45rem;
+  height: 1.45rem;
+  border-radius: 999px;
+  background: #e8eefc;
+  color: #54657f;
+  font-size: 0.78rem;
+}
+
+.progress-step.done,
+.progress-step.current {
+  opacity: 1;
+}
+
+.progress-step.done span {
+  background: #16a56b;
+  color: white;
+}
+
+.progress-step.current span {
+  background: #2558d9;
+  color: white;
+  box-shadow: 0 0 0 0.35rem rgba(37, 88, 217, 0.12);
 }
 
 .spinner {

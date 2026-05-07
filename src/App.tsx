@@ -109,6 +109,9 @@ function App() {
   const [focusedCardId, setFocusedCardId] = useState<string | null>(null);
   const [logLines, setLogLines] = useState<LogLine[]>([]);
   const [executionStatuses, setExecutionStatuses] = useState<Record<string, ExecutionStatus>>({});
+  const [latestExecutionEvent, setLatestExecutionEvent] = useState<SetupExecutionEvent | null>(null);
+  const [modalProgressPercent, setModalProgressPercent] = useState(0);
+  const [progressStartedAt, setProgressStartedAt] = useState(() => Date.now());
 
   const isBusy = busyTask !== null;
   const requiredCount = useMemo(
@@ -165,6 +168,7 @@ function App() {
 
     listen<SetupExecutionEvent>("setup://execution-event", (event) => {
       if (cancelled) return;
+      setLatestExecutionEvent(event.payload);
       setLogLines((current) => [
         ...current,
         {
@@ -190,6 +194,29 @@ function App() {
       cleanup?.();
     };
   }, []);
+
+  useEffect(() => {
+    if (!busyTask) {
+      setLatestExecutionEvent(null);
+      setModalProgressPercent(0);
+      return;
+    }
+    setProgressStartedAt(Date.now());
+    setModalProgressPercent(initialModalProgress(busyTask));
+  }, [busyTask]);
+
+  useEffect(() => {
+    if (!busyTask) return;
+
+    const timer = window.setInterval(() => {
+      const elapsedSeconds = Math.floor((Date.now() - progressStartedAt) / 1000);
+      const target = modalProgressTarget(busyTask, latestExecutionEvent);
+      const elapsedFloor = Math.min(target - 2, initialModalProgress(busyTask) + elapsedSeconds * 2);
+      setModalProgressPercent((current) => Math.min(target, Math.max(current + 1, elapsedFloor)));
+    }, 500);
+
+    return () => window.clearInterval(timer);
+  }, [busyTask, progressStartedAt, latestExecutionEvent?.status]);
 
   const installQueueCount = useMemo(
     () => approvalQueue.filter((card) => card.step.action_phase === "install").length,
@@ -265,6 +292,14 @@ function App() {
     if (!plan) {
       setPlan(setupPlan);
     }
+    setLatestExecutionEvent((current) => current
+      ? {
+          ...current,
+          status: "verifying",
+          kind: "system",
+          message_ko: "방금 끝난 작업을 반영해 전체 상태를 다시 점검합니다.",
+        }
+      : current);
     const nextChecks = await invoke<ToolCheck[]>("run_all_diagnostics");
     setChecks(nextChecks);
     const nextReport = await invoke<HealthReport>("build_health_report", {
@@ -311,6 +346,16 @@ function App() {
     setMessage(`승인 큐 항목을 '${approvalDecisionLabels.approved}' 상태로 표시했습니다. 이제 실제 실행/검증 상태를 따로 추적합니다.`);
     setExecutionStatuses((current) => ({ ...current, [card.id]: "running" }));
     setBusyTask("execution");
+    setProgressStartedAt(Date.now());
+    setModalProgressPercent(initialModalProgress("execution"));
+    setLatestExecutionEvent({
+      action_id: card.step.id,
+      status: "queued",
+      kind: "system",
+      message_ko: `${card.step.label_ko} 준비 중입니다.`,
+      command_preview: card.step.command_preview,
+      docs_url: card.step.docs_url,
+    });
     setLogLines((current) => [
       ...current,
       { kind: "system", text: `${card.step.label_ko} 작업을 준비합니다.` },
@@ -354,6 +399,8 @@ function App() {
 
   async function runDiagnostics() {
     setBusyTask("diagnostics");
+    setProgressStartedAt(Date.now());
+    setModalProgressPercent(initialModalProgress("diagnostics"));
     setActiveScreen("diagnostics");
     setMessage("진단 중입니다. 허용된 확인 명령만 실행합니다...");
     try {
@@ -537,7 +584,14 @@ function App() {
         </div>
       </footer>
 
-      {busyTask && <ProgressModal task={busyTask} />}
+      {busyTask && (
+        <ProgressModal
+          task={busyTask}
+          card={focusedCard}
+          event={latestExecutionEvent}
+          percent={modalProgressPercent}
+        />
+      )}
     </main>
   );
 }
@@ -902,37 +956,157 @@ function EmptyState({
   );
 }
 
-function ProgressModal({ task }: { task: BusyTask }) {
-  const title = task === "diagnostics"
-    ? "안전 진단을 진행 중입니다"
-    : task === "plan"
-      ? "설치 계획을 불러오는 중입니다"
-      : task === "update"
-        ? "업데이트를 확인하는 중입니다"
-        : task === "execution"
-          ? "다음 단계를 진행 중입니다"
-          : "리포트를 만드는 중입니다";
-  const helper = task === "diagnostics"
-    ? "허용된 확인 명령만 실행하고, 비밀번호나 토큰은 요청하지 않습니다."
-    : task === "update"
-      ? "공개 GitHub 릴리즈의 서명된 업데이트 정보만 확인합니다."
-      : task === "execution"
-        ? "설치나 브라우저 로그인이 끝나면 앱으로 돌아와 다시 점검하세요."
-        : "잠시만 기다려 주세요. 화면을 이동해도 진행 상태는 유지됩니다.";
+function initialModalProgress(task: NonNullable<BusyTask>): number {
+  if (task === "execution") return 8;
+  if (task === "diagnostics") return 12;
+  if (task === "update") return 16;
+  return 18;
+}
+
+function modalProgressTarget(task: NonNullable<BusyTask>, event: SetupExecutionEvent | null): number {
+  if (task !== "execution") {
+    return task === "diagnostics" ? 88 : 82;
+  }
+
+  switch (event?.status) {
+    case "queued":
+      return 22;
+    case "running":
+      return 48;
+    case "needs_os_consent":
+      return 64;
+    case "verifying":
+      return 88;
+    case "needs_browser_auth":
+    case "needs_reboot":
+    case "done":
+    case "blocked":
+      return 100;
+    default:
+      return 58;
+  }
+}
+
+function progressStepState(index: number, currentIndex: number): StepState {
+  if (index < currentIndex) return "done";
+  if (index === currentIndex) return "current";
+  return "waiting";
+}
+
+function modalCurrentStepIndex(task: NonNullable<BusyTask>, event: SetupExecutionEvent | null): number {
+  if (task !== "execution") {
+    return Math.min(2, Math.floor(modalProgressTarget(task, event) / 32));
+  }
+
+  switch (event?.status) {
+    case "queued":
+    case "running":
+      return 1;
+    case "needs_os_consent":
+      return 2;
+    case "verifying":
+      return 3;
+    case "needs_browser_auth":
+    case "needs_reboot":
+    case "done":
+    case "blocked":
+      return 4;
+    default:
+      return 1;
+  }
+}
+
+function progressModalCopy(
+  task: NonNullable<BusyTask>,
+  card: ApprovalCard | null,
+  event: SetupExecutionEvent | null,
+) {
+  const actionLabel = card?.step.label_ko ?? "다음 단계";
+  const isExternalFlow = card?.step.action_phase === "external_flow";
+  const isDownloadOrInstall = card?.step.action_phase === "install";
+
+  if (task === "execution") {
+    return {
+      title: isExternalFlow ? `${actionLabel} 창을 여는 중입니다` : `${actionLabel} 진행 중입니다`,
+      helper: event?.message_ko ?? "설치나 브라우저 로그인이 끝나면 앱이 검증 단계로 넘어갑니다.",
+      detail: isExternalFlow
+        ? "공식 로그인 화면만 사용합니다. 이 앱은 비밀번호나 토큰을 입력받지 않습니다."
+        : isDownloadOrInstall
+          ? "다운로드, 설치, PATH 반영, 검증을 순서대로 확인하고 있습니다."
+          : "허용된 작업인지 확인하고 결과를 반영합니다.",
+      steps: [
+        "허용된 작업 확인",
+        isExternalFlow ? "공식 로그인 창 열기" : "다운로드/설치 진행",
+        isExternalFlow ? "사용자 로그인 완료 대기" : "설치 결과 확인",
+        "전체 상태 다시 점검",
+        "화면에 결과 반영",
+      ],
+    };
+  }
+
+  if (task === "diagnostics") {
+    return {
+      title: "1분 점검을 진행 중입니다",
+      helper: "현재 컴퓨터에 필요한 도구가 있는지 안전하게 확인하고 있습니다.",
+      detail: "비밀번호나 토큰은 요청하지 않고, 결과에 필요한 민감정보는 가려서 표시합니다.",
+      steps: ["점검 계획 확인", "도구 상태 확인", "로그인 상태 확인", "결과 정리", "다음 버튼 표시"],
+    };
+  }
+
+  if (task === "update") {
+    return {
+      title: "업데이트를 확인하는 중입니다",
+      helper: "공개 GitHub 릴리즈의 서명된 업데이트 정보만 확인합니다.",
+      detail: "새 버전이 있으면 사용자가 직접 진행할 수 있도록 안내합니다.",
+      steps: ["업데이트 채널 확인", "릴리즈 정보 확인", "서명 확인", "결과 정리", "화면에 표시"],
+    };
+  }
+
+  return {
+    title: task === "plan" ? "설치 계획을 불러오는 중입니다" : "리포트를 만드는 중입니다",
+    helper: "잠시만 기다려 주세요. 화면을 이동해도 진행 상태는 유지됩니다.",
+    detail: "사용자에게 필요한 다음 행동만 간단히 보여주도록 정리합니다.",
+    steps: ["안전 규칙 확인", "필요 항목 정리", "민감정보 가림 처리", "결과 정리", "화면에 표시"],
+  };
+}
+
+function ProgressModal({
+  task,
+  card,
+  event,
+  percent,
+}: {
+  task: NonNullable<BusyTask>;
+  card: ApprovalCard | null;
+  event: SetupExecutionEvent | null;
+  percent: number;
+}) {
+  const copy = progressModalCopy(task, card, event);
+  const currentStepIndex = modalCurrentStepIndex(task, event);
+  const clampedPercent = Math.max(0, Math.min(100, Math.round(percent)));
 
   return (
     <div className="modal-backdrop" role="alertdialog" aria-modal="true" aria-label="진행 상황">
       <section className="progress-modal">
         <div className="spinner" aria-hidden="true" />
-        <div>
-          <p className="eyebrow">진행 중</p>
-          <h2>{title}</h2>
-          <p>{helper}</p>
-          <ol>
-            <li>허용된 작업인지 확인</li>
-            <li>{task === "execution" ? "필요하면 Windows 권한 창 대기" : "현재 컴퓨터 상태 점검"}</li>
-            <li>{task === "execution" ? "설치 완료 후 검증" : "민감정보 가림 처리"}</li>
-            <li>화면에 결과 표시</li>
+        <div className="progress-modal-copy">
+          <p className="eyebrow">진행 중 · {clampedPercent}%</p>
+          <h2>{copy.title}</h2>
+          <p>{copy.helper}</p>
+          <p className="progress-detail">{copy.detail}</p>
+          <div className="progress-track" role="progressbar" aria-label={copy.title} aria-valuemin={0} aria-valuemax={100} aria-valuenow={clampedPercent}>
+            <span style={{ width: `${clampedPercent}%` }} />
+          </div>
+          <ol className="progress-steps">
+            {copy.steps.map((step, index) => {
+              const state = progressStepState(index, currentStepIndex);
+              return (
+                <li key={step} className={`progress-step ${state}`}>
+                  <span>{index + 1}</span>
+                  {step}
+                </li>
+              );
+            })}
           </ol>
         </div>
       </section>

@@ -147,12 +147,14 @@ Beginner copy: “Codex 앱이 처음 실행되며 오류가 나도 괜찮습니
 
 ## 9. Supabase CLI
 
-| 플랫폼 | Install | Detect | Verify | 금지 |
-| --- | --- | --- | --- | --- |
-| macOS | 공식 문서의 Homebrew 방식 `brew install supabase/tap/supabase` | `supabase --version` | `supabase --version` | 금지: `npm install -g supabase` |
-| Windows | 공식 GitHub 릴리스의 `supabase_windows_amd64.tar.gz` 독립 실행 파일을 사용자 폴더에 설치하고 PATH 등록 | `supabase --version` | 새 PowerShell에서 `supabase --version` | 금지: `npm install -g supabase` |
+| 플랫폼 | Install | Detect | Auth | Verify | 금지 |
+| --- | --- | --- | --- | --- | --- |
+| macOS | 공식 문서의 Homebrew 방식 `brew install supabase/tap/supabase` | `supabase --version` | 공식 `supabase login` 흐름 | `supabase projects list` | 금지: `npm install -g supabase`, 앱이 access token 입력받기 |
+| Windows | 공식 GitHub 릴리스의 `supabase_windows_amd64.tar.gz` 독립 실행 파일을 사용자 폴더에 설치하고 PATH 등록 | `supabase --version` | 공식 `supabase login` 흐름 | 새 PowerShell에서 `supabase projects list` | 금지: `npm install -g supabase`, 앱이 access token 저장 |
 
 주의: Supabase 공식 문서 기준으로 npm 전역 설치는 지원되지 않는다. Node/npm 기반 수업에서는 필요할 때 `npx supabase ...` 또는 프로젝트 dev dependency 방식도 안내할 수 있지만, 이 앱의 전역 CLI 준비는 standalone/Homebrew 경로를 사용한다.
+
+Beginner copy: “Supabase 가입/로그인은 공식 CLI 흐름에서 진행됩니다. 이 앱은 Supabase 토큰을 직접 묻거나 저장하지 않습니다.”
 
 ## 10. Homebrew / macOS prerequisites
 

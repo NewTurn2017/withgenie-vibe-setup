@@ -831,6 +831,52 @@ fn allowed_commands() -> Vec<RecipeStep> {
             requires_elevation_method: ElevationMethod::None,
         },
         RecipeStep {
+            id: "supabase.auth.status",
+            target_os: None,
+            label_ko: "Supabase 로그인 확인",
+            description_ko: "Supabase CLI가 내 Supabase 계정에 연결되어 있는지 확인합니다.",
+            program: "supabase",
+            args: &["projects", "list"],
+            required_for_class: true,
+            requires_consent: false,
+            may_require_elevation: false,
+            requires_browser: false,
+            required_version_hint: None,
+            docs_url: "https://supabase.com/docs/guides/local-development/overview",
+            risk_tier: RiskTier::Safe,
+            action_phase: ActionPhase::Detect,
+            approval_copy_ko: "현재 로그인 상태만 확인하며 컴퓨터 설정을 바꾸지 않습니다.",
+            expected_permission_prompt_ko: "권한 창이 나타나지 않습니다.",
+            package_source: None,
+            rollback_note_ko: "변경 사항이 없어 되돌릴 작업이 없습니다.",
+            support_handoff_ko: "supabase login 완료 여부와 supabase projects list 결과를 확인하세요.",
+            command_preview: "supabase projects list",
+            requires_elevation_method: ElevationMethod::None,
+        },
+        RecipeStep {
+            id: "supabase.login",
+            target_os: None,
+            label_ko: "Supabase 브라우저 로그인 시작",
+            description_ko: "Supabase 가입/로그인은 공식 CLI 흐름으로 진행됩니다. 이 앱은 Supabase 토큰을 직접 받지 않습니다.",
+            program: "supabase",
+            args: &["login"],
+            required_for_class: true,
+            requires_consent: true,
+            may_require_elevation: false,
+            requires_browser: true,
+            required_version_hint: None,
+            docs_url: "https://supabase.com/docs/guides/local-development/overview",
+            risk_tier: RiskTier::UserMediated,
+            action_phase: ActionPhase::ExternalFlow,
+            approval_copy_ko: "공식 Supabase 로그인 흐름을 엽니다. 계정이 없다면 브라우저에서 가입을 먼저 완료하세요.",
+            expected_permission_prompt_ko: "Supabase 브라우저 로그인 또는 access token 확인 화면이 나타날 수 있습니다.",
+            package_source: None,
+            rollback_note_ko: "필요하면 supabase logout 또는 Supabase 계정 설정에서 연결을 해제할 수 있습니다.",
+            support_handoff_ko: "Supabase dashboard 가입 여부, supabase login 완료 여부, projects list 검증 결과를 확인하세요.",
+            command_preview: "supabase login",
+            requires_elevation_method: ElevationMethod::UserManaged,
+        },
+        RecipeStep {
             id: "supabase.install.windows.standalone",
             target_os: Some("windows"),
             label_ko: "Supabase CLI 설치",
@@ -1116,6 +1162,13 @@ fn external_flow_command_for(action_id: &str) -> Option<ExternalFlowCommand> {
             args: &["login"],
             verify_program: "vercel",
             verify_args: &["whoami"],
+        }),
+        "supabase.login" => Some(ExternalFlowCommand {
+            title_ko: "Supabase 브라우저 로그인",
+            program: "supabase",
+            args: &["login"],
+            verify_program: "supabase",
+            verify_args: &["projects", "list"],
         }),
         _ => None,
     }
@@ -1600,7 +1653,7 @@ fn run_program_with_timeout(program: &str, args: &[&str], timeout: Duration) -> 
 fn command_for_program(program: &str, args: &[&str]) -> Command {
     #[cfg(target_os = "windows")]
     {
-        if matches!(program, "npm" | "pnpm" | "vercel") {
+        if matches!(program, "npm" | "pnpm" | "vercel" | "supabase") {
             let mut command = Command::new("cmd");
             command.arg("/C").arg(program).args(args);
             command.creation_flags(CREATE_NO_WINDOW);
@@ -2246,6 +2299,13 @@ mod tests {
         assert_eq!(vercel.args, ["login"]);
         assert_eq!(vercel.verify_program, "vercel");
         assert_eq!(vercel.verify_args, ["whoami"]);
+
+        let supabase = external_flow_command_for("supabase.login")
+            .expect("Supabase external flow should have a launcher command");
+        assert_eq!(supabase.program, "supabase");
+        assert_eq!(supabase.args, ["login"]);
+        assert_eq!(supabase.verify_program, "supabase");
+        assert_eq!(supabase.verify_args, ["projects", "list"]);
     }
 
     #[test]
@@ -2271,11 +2331,15 @@ mod tests {
         let gh = find_allowed_command("gh.auth.login").expect("GitHub login recipe should exist");
         let vercel =
             find_allowed_command("vercel.login").expect("Vercel login recipe should exist");
+        let supabase =
+            find_allowed_command("supabase.login").expect("Supabase login recipe should exist");
 
         assert_eq!(gh.risk_tier, RiskTier::UserMediated);
         assert_eq!(gh.action_phase, ActionPhase::ExternalFlow);
         assert_eq!(vercel.risk_tier, RiskTier::UserMediated);
         assert_eq!(vercel.action_phase, ActionPhase::ExternalFlow);
+        assert_eq!(supabase.risk_tier, RiskTier::UserMediated);
+        assert_eq!(supabase.action_phase, ActionPhase::ExternalFlow);
     }
 
     #[test]
@@ -2453,6 +2517,24 @@ mod tests {
                 step.id
             );
         }
+    }
+
+    #[test]
+    fn supabase_login_uses_official_cli_flow_without_app_token_flags() {
+        let login =
+            find_allowed_command("supabase.login").expect("Supabase login recipe should exist");
+        let auth_status = find_allowed_command("supabase.auth.status")
+            .expect("Supabase auth status recipe should exist");
+
+        assert_eq!(login.program, "supabase");
+        assert_eq!(login.args, ["login"]);
+        assert!(login.requires_browser);
+        assert_eq!(login.action_phase, ActionPhase::ExternalFlow);
+        assert_eq!(auth_status.program, "supabase");
+        assert_eq!(auth_status.args, ["projects", "list"]);
+        assert!(!login.args.contains(&"--token"));
+        assert!(!login.args.contains(&"--with-token"));
+        assert!(!login.command_preview.contains("SUPABASE_ACCESS_TOKEN"));
     }
 
     #[test]

@@ -96,6 +96,19 @@ function actionIdForCheck(
     return undefined;
   }
 
+  if (check.id === "supabase.auth.status") {
+    if (!isInstalled(checksById.get("supabase.version"))) {
+      if (currentOs === "windows") {
+        return "supabase.install.windows.standalone";
+      }
+      if (currentOs === "macos" && isInstalled(checksById.get("brew.version"))) {
+        return "supabase.install.macos.brew";
+      }
+      return undefined;
+    }
+    return "supabase.login";
+  }
+
   return installActionByCheckId[check.id];
 }
 
