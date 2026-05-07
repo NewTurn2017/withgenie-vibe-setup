@@ -5309,7 +5309,7 @@ dependencies = [
 
 [[package]]
 name = "withgenie-vibe-setup"
-version = "0.1.19"
+version = "0.1.20"
 dependencies = [
  "chrono",
  "regex",

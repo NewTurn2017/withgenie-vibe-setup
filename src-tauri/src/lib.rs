@@ -11,7 +11,7 @@ use wait_timeout::ChildExt;
 use std::os::windows::process::CommandExt;
 
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
-const RECIPE_VERSION: &str = "2026.05.07.5";
+const RECIPE_VERSION: &str = "2026.05.07.6";
 const COMMAND_TIMEOUT_SECONDS: u64 = 12;
 const EXECUTION_TIMEOUT_SECONDS: u64 = 20 * 60;
 const NATIVE_MENU_LABELS_KO: [&str; 5] = ["파일", "편집", "보기", "창", "도움말"];
@@ -26,6 +26,30 @@ const CODEX_WINDOWS_INSTALL_SCRIPT: &str = "$ErrorActionPreference = 'Stop'; $ur
 const WINDOWS_VCREDIST_DETECT_SCRIPT: &str = r#"$key = 'HKLM:\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64'; if (Test-Path $key) { $item = Get-ItemProperty $key; if ($item.Installed -eq 1) { Write-Output ('VC++ Redistributable x64 ' + $item.Version); exit 0 } }; Write-Error 'Microsoft Visual C++ 2015-2022 Redistributable x64 not found'; exit 1"#;
 const WINDOWS_WEBVIEW2_DETECT_SCRIPT: &str = r#"$paths = @('HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}', 'HKLM:\SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}', 'HKCU:\SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'); foreach ($path in $paths) { if (Test-Path $path) { $item = Get-ItemProperty $path; if ($item.pv) { Write-Output ('WebView2 Runtime ' + $item.pv); exit 0 } } }; Write-Error 'Microsoft Edge WebView2 Runtime not found'; exit 1"#;
 const SUPABASE_WINDOWS_INSTALL_SCRIPT: &str = "$ErrorActionPreference = 'Stop'; $installDir = Join-Path $env:LOCALAPPDATA 'Programs\\Supabase'; New-Item -ItemType Directory -Force -Path $installDir | Out-Null; $headers = @{ 'User-Agent' = 'Vibe Coding Setup' }; $release = Invoke-RestMethod -Headers $headers -Uri 'https://api.github.com/repos/supabase/cli/releases/latest'; $asset = $release.assets | Where-Object { $_.name -eq 'supabase_windows_amd64.tar.gz' } | Select-Object -First 1; if (-not $asset) { throw 'Supabase Windows x64 package not found' }; $archive = Join-Path $env:TEMP $asset.name; Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $archive; tar -xzf $archive -C $installDir; $exe = Join-Path $installDir 'supabase.exe'; if (-not (Test-Path $exe)) { $found = Get-ChildItem $installDir -Recurse -Filter 'supabase.exe' | Select-Object -First 1; if ($found) { Copy-Item $found.FullName $exe -Force } }; if (-not (Test-Path $exe)) { throw 'supabase.exe not found after extraction' }; $userPath = [Environment]::GetEnvironmentVariable('Path', 'User'); if ((($userPath -split ';') -notcontains $installDir)) { [Environment]::SetEnvironmentVariable('Path', (($userPath.TrimEnd(';') + ';' + $installDir).TrimStart(';')), 'User') }; & $exe --version";
+#[cfg(target_os = "macos")]
+const NODE_MACOS_INSTALL_SCRIPT: &str = r#"set -euo pipefail
+BASE_URL="https://nodejs.org/dist/latest-v24.x"
+PKG_NAME="$(curl -fsSL "$BASE_URL/SHASUMS256.txt" | awk '/ node-v[0-9][^ ]*\.pkg$/ { print $2; exit }')"
+if [ -z "$PKG_NAME" ]; then
+  echo "Node.js v24 macOS pkg를 찾지 못했습니다." >&2
+  exit 1
+fi
+PKG_PATH="${TMPDIR:-/tmp}/$PKG_NAME"
+echo "Node.js v24 설치 파일 다운로드: $PKG_NAME"
+curl -fL "$BASE_URL/$PKG_NAME" -o "$PKG_PATH"
+echo "Node.js v24 설치를 시작합니다."
+/usr/sbin/installer -pkg "$PKG_PATH" -target /
+if command -v node >/dev/null 2>&1; then
+  node -v
+elif [ -x /usr/local/bin/node ]; then
+  /usr/local/bin/node -v
+fi
+if command -v npm >/dev/null 2>&1; then
+  npm -v
+elif [ -x /usr/local/bin/npm ]; then
+  /usr/local/bin/npm -v
+fi
+"#;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -368,6 +392,29 @@ fn allowed_commands() -> Vec<RecipeStep> {
             requires_elevation_method: ElevationMethod::WindowsRunas,
         },
         RecipeStep {
+            id: "node.install.macos.pkg",
+            target_os: Some("macos"),
+            label_ko: "Node.js LTS 설치",
+            description_ko: "Node.js 공식 latest-v24.x macOS 설치 파일을 내려받아 OS 설치 권한 창으로 설치합니다. npm도 함께 설치됩니다.",
+            program: "osascript",
+            args: &["-e", "do shell script node-v24-installer with administrator privileges"],
+            required_for_class: false,
+            requires_consent: true,
+            may_require_elevation: true,
+            requires_browser: false,
+            required_version_hint: Some("^v24."),
+            docs_url: "https://nodejs.org/dist/latest-v24.x/",
+            risk_tier: RiskTier::PermissionPrompt,
+            action_phase: ActionPhase::Install,
+            approval_copy_ko: "앱이 Node.js 공식 v24 설치 파일을 다운로드하고, 사용자는 macOS 관리자 권한 창에서 승인만 합니다.",
+            expected_permission_prompt_ko: "macOS가 관리자 이름/암호 또는 Touch ID 승인을 요청할 수 있습니다. 앱은 암호를 직접 받지 않습니다.",
+            package_source: Some("nodejs.org: latest-v24.x macOS pkg"),
+            rollback_note_ko: "Node.js 공식 pkg는 자동 제거기를 제공하지 않습니다. 필요하면 /usr/local/bin/node, /usr/local/bin/npm, /usr/local/lib/node_modules 등을 수동 제거해야 하며 다른 앱에 영향이 있을 수 있습니다.",
+            support_handoff_ko: "macOS 관리자 권한 창 승인 여부, nodejs.org 다운로드 네트워크 상태, node -v/npm -v 검증 결과를 확인하세요.",
+            command_preview: "download latest-v24.x macOS pkg and install with macOS administrator prompt",
+            requires_elevation_method: ElevationMethod::OsascriptAdmin,
+        },
+        RecipeStep {
             id: "npm.version",
             target_os: None,
             label_ko: "npm 확인",
@@ -433,6 +480,29 @@ fn allowed_commands() -> Vec<RecipeStep> {
             package_source: Some("npm: pnpm@latest"),
             rollback_note_ko: "npm uninstall -g pnpm 으로 제거할 수 있습니다.",
             support_handoff_ko: "npm 실행 가능 여부와 npm 전역 설치 로그, pnpm -v 검증 결과를 확인하세요.",
+            command_preview: "npm install -g pnpm@latest",
+            requires_elevation_method: ElevationMethod::None,
+        },
+        RecipeStep {
+            id: "pnpm.install.macos.npm",
+            target_os: Some("macos"),
+            label_ko: "pnpm 설치",
+            description_ko: "Node.js/npm이 준비된 뒤 npm으로 pnpm을 전역 설치합니다.",
+            program: "npm",
+            args: &["install", "-g", "pnpm@latest"],
+            required_for_class: false,
+            requires_consent: true,
+            may_require_elevation: false,
+            requires_browser: false,
+            required_version_hint: None,
+            docs_url: "https://pnpm.io/installation",
+            risk_tier: RiskTier::UserMediated,
+            action_phase: ActionPhase::Install,
+            approval_copy_ko: "Node.js/npm이 준비된 뒤 pnpm을 설치합니다. 앱은 macOS 앱 실행 PATH와 로그인 셸 PATH를 함께 확인합니다.",
+            expected_permission_prompt_ko: "보통 권한 창이 나타나지 않습니다. npm 전역 폴더 권한이 막혀 있으면 강사 도움이 필요할 수 있습니다.",
+            package_source: Some("npm: pnpm@latest"),
+            rollback_note_ko: "npm uninstall -g pnpm 으로 제거할 수 있습니다.",
+            support_handoff_ko: "npm 실행 가능 여부, npm 전역 설치 경로, pnpm -v 검증 결과를 확인하세요.",
             command_preview: "npm install -g pnpm@latest",
             requires_elevation_method: ElevationMethod::None,
         },
@@ -545,6 +615,29 @@ fn allowed_commands() -> Vec<RecipeStep> {
             support_handoff_ko: "UAC에서 예를 눌렀는지, winget 설치 종료 코드와 gh --version 검증 결과를 확인하세요.",
             command_preview: "winget install --id GitHub.cli -e --accept-package-agreements --accept-source-agreements --disable-interactivity --silent",
             requires_elevation_method: ElevationMethod::WindowsRunas,
+        },
+        RecipeStep {
+            id: "gh.install.macos.brew",
+            target_os: Some("macos"),
+            label_ko: "GitHub CLI 설치",
+            description_ko: "Homebrew로 공식 GitHub CLI를 설치합니다. 로그인은 설치 후 별도 브라우저 흐름으로 진행합니다.",
+            program: "brew",
+            args: &["install", "gh"],
+            required_for_class: false,
+            requires_consent: true,
+            may_require_elevation: false,
+            requires_browser: false,
+            required_version_hint: None,
+            docs_url: "https://cli.github.com/",
+            risk_tier: RiskTier::UserMediated,
+            action_phase: ActionPhase::Install,
+            approval_copy_ko: "Homebrew가 준비된 Mac에서는 brew install gh로 GitHub CLI를 설치합니다.",
+            expected_permission_prompt_ko: "보통 권한 창이 나타나지 않습니다. Homebrew 또는 Xcode Command Line Tools 상태에 따라 추가 안내가 나올 수 있습니다.",
+            package_source: Some("Homebrew: gh"),
+            rollback_note_ko: "brew uninstall gh 로 제거할 수 있습니다.",
+            support_handoff_ko: "Homebrew 설치 여부와 brew install gh 로그, gh --version 검증 결과를 확인하세요.",
+            command_preview: "brew install gh",
+            requires_elevation_method: ElevationMethod::None,
         },
         RecipeStep {
             id: "gh.auth.login",
@@ -780,6 +873,29 @@ fn allowed_commands() -> Vec<RecipeStep> {
             action_phase: ActionPhase::Install,
             approval_copy_ko: "npm으로 Vercel CLI를 설치합니다. 계정이 없다면 설치 후 브라우저 가입/로그인을 안내합니다.",
             expected_permission_prompt_ko: "보통 권한 창이 나타나지 않습니다. Node.js 설치 직후라면 PATH 반영을 위해 재진단이 필요할 수 있습니다.",
+            package_source: Some("npm: vercel@latest"),
+            rollback_note_ko: "npm uninstall -g vercel 으로 제거할 수 있습니다.",
+            support_handoff_ko: "npm 실행 가능 여부와 npm 전역 설치 로그, vercel --version/whoami 검증 결과를 확인하세요.",
+            command_preview: "npm install -g vercel@latest",
+            requires_elevation_method: ElevationMethod::None,
+        },
+        RecipeStep {
+            id: "vercel.install.macos.npm",
+            target_os: Some("macos"),
+            label_ko: "Vercel CLI 설치",
+            description_ko: "Node.js/npm이 준비된 뒤 Vercel CLI를 설치합니다. 가입/로그인은 설치 후 공식 브라우저 흐름으로 진행합니다.",
+            program: "npm",
+            args: &["install", "-g", "vercel@latest"],
+            required_for_class: false,
+            requires_consent: true,
+            may_require_elevation: false,
+            requires_browser: false,
+            required_version_hint: None,
+            docs_url: "https://vercel.com/docs/cli",
+            risk_tier: RiskTier::UserMediated,
+            action_phase: ActionPhase::Install,
+            approval_copy_ko: "npm으로 Vercel CLI를 설치합니다. 계정이 없다면 설치 후 브라우저 가입/로그인을 안내합니다.",
+            expected_permission_prompt_ko: "보통 권한 창이 나타나지 않습니다. npm 전역 폴더 권한이 막혀 있으면 강사 도움이 필요할 수 있습니다.",
             package_source: Some("npm: vercel@latest"),
             rollback_note_ko: "npm uninstall -g vercel 으로 제거할 수 있습니다.",
             support_handoff_ko: "npm 실행 가능 여부와 npm 전역 설치 로그, vercel --version/whoami 검증 결과를 확인하세요.",
@@ -1113,7 +1229,9 @@ fn execution_event_from_outcome(
 fn execution_verify_step_id(action_id: &str) -> Option<&'static str> {
     match action_id {
         "node.install.windows.winget" => Some("node.version"),
+        "node.install.macos.pkg" => Some("node.version"),
         "pnpm.install.windows.npm" => Some("pnpm.version"),
+        "pnpm.install.macos.npm" => Some("pnpm.version"),
         "git.install.windows.winget" => Some("git.version"),
         "windows.vcredist.install.x64.winget" => Some("windows.vcredist.x64"),
         "windows.webview2.install.winget" => Some("windows.webview2.runtime"),
@@ -1239,8 +1357,15 @@ fn program_is_available(program: &str) -> bool {
 
     #[cfg(not(target_os = "windows"))]
     {
-        Command::new("which")
-            .arg(program)
+        let mut command = Command::new("which");
+        command.arg(program);
+
+        #[cfg(target_os = "macos")]
+        if let Some(path) = refreshed_macos_path() {
+            command.env("PATH", path);
+        }
+
+        command
             .output()
             .map(|output| output.status.success())
             .unwrap_or(false)
@@ -1449,17 +1574,23 @@ fn powershell_single_quoted(value: &str) -> String {
     format!("'{}'", value.replace('\'', "''"))
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", test))]
 fn macos_external_flow_script(flow: &ExternalFlowCommand) -> String {
     format!(
-        "echo 'Vibe Coding Setup - {}'; echo; echo '브라우저 로그인/코드 확인을 완료해 주세요.'; {}; echo; echo '로그인 명령이 끝났습니다. 검증 결과:'; {}; echo; echo \"완료 후 앱으로 돌아가 '1분 점검 다시 하기' 또는 상단의 큰 계속 버튼을 눌러 주세요.\"",
+        "{}; echo 'Vibe Coding Setup - {}'; echo; echo '브라우저 로그인/코드 확인을 완료해 주세요.'; echo '이 창은 자동으로 닫히지 않습니다.'; echo; {}; echo; echo '로그인 명령이 끝났습니다. 검증 결과:'; {}; echo; echo \"완료 후 앱으로 돌아가 '1분 점검 다시 하기' 또는 상단의 큰 계속 버튼을 눌러 주세요.\"; echo; printf '창을 닫으려면 Enter를 누르세요 '; read _",
+        macos_terminal_path_prelude(),
         flow.title_ko,
         posix_command_line(flow.program, flow.args),
         posix_command_line(flow.verify_program, flow.verify_args),
     )
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", test))]
+fn macos_terminal_path_prelude() -> &'static str {
+    "if [ -x /usr/libexec/path_helper ]; then eval \"$(/usr/libexec/path_helper -s)\"; fi; export PATH=\"/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH\"; if command -v npm >/dev/null 2>&1; then npm_prefix=\"$(npm prefix -g 2>/dev/null || true)\"; if [ -n \"$npm_prefix\" ] && [ -d \"$npm_prefix/bin\" ]; then export PATH=\"$npm_prefix/bin:$PATH\"; fi; fi"
+}
+
+#[cfg(any(target_os = "macos", test))]
 fn posix_command_line(program: &str, args: &[&str]) -> String {
     std::iter::once(program)
         .chain(args.iter().copied())
@@ -1468,7 +1599,7 @@ fn posix_command_line(program: &str, args: &[&str]) -> String {
         .join(" ")
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", test))]
 fn posix_shell_arg(value: &str) -> String {
     if value
         .chars()
@@ -1480,15 +1611,57 @@ fn posix_shell_arg(value: &str) -> String {
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", test))]
 fn applescript_string(value: &str) -> String {
     format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
+#[cfg(target_os = "macos")]
+fn run_macos_node_pkg_install(timeout: Duration) -> CommandEvidence {
+    let mut script_path = std::env::temp_dir();
+    script_path.push(format!(
+        "vibe-coding-setup-node-v24-{}.sh",
+        Utc::now().timestamp_millis()
+    ));
+
+    if let Err(error) = std::fs::write(&script_path, NODE_MACOS_INSTALL_SCRIPT) {
+        return CommandEvidence {
+            exit_code: None,
+            duration_ms: 0,
+            stdout_redacted: String::new(),
+            stderr_redacted: redact(&format!(
+                "Node.js 설치 스크립트를 만들 수 없습니다: {error}"
+            )),
+        };
+    }
+
+    let Some(script_path_text) = script_path.to_str() else {
+        return CommandEvidence {
+            exit_code: None,
+            duration_ms: 0,
+            stdout_redacted: String::new(),
+            stderr_redacted: "Node.js 설치 스크립트 경로를 읽을 수 없습니다.".to_string(),
+        };
+    };
+    let shell_command = format!("/bin/sh {}", posix_shell_arg(script_path_text));
+    let apple_script = format!(
+        "do shell script {} with administrator privileges",
+        applescript_string(&shell_command)
+    );
+    let mut command = Command::new("osascript");
+    command.arg("-e").arg(apple_script);
+    let evidence = run_prepared_command_with_timeout(command, timeout);
+    let _ = std::fs::remove_file(script_path);
+    evidence
 }
 
 fn verify_after_install(
     step: &RecipeStep,
 ) -> Result<(CheckStatus, Option<String>, CommandEvidence), String> {
-    if step.id == "gh.install.windows.winget" {
+    if matches!(
+        step.id,
+        "gh.install.windows.winget" | "gh.install.macos.brew"
+    ) {
         let evidence = run_program_with_timeout(
             "gh",
             &["--version"],
@@ -1504,7 +1677,10 @@ fn verify_after_install(
         return Ok((CheckStatus::NeedsRepair, None, evidence));
     }
 
-    if step.id == "vercel.install.windows.npm" {
+    if matches!(
+        step.id,
+        "vercel.install.windows.npm" | "vercel.install.macos.npm"
+    ) {
         let evidence = run_program_with_timeout(
             "vercel",
             &["--version"],
@@ -1591,7 +1767,7 @@ fn execute_install_action(
             status: ExecutionStatus::NeedsOsConsent,
             kind: "system",
             message_ko: format!(
-                "{} 설치를 시작합니다. 권한 창이 뜨면 사용자가 직접 '예'를 눌러주세요.",
+                "{} 설치를 시작합니다. 권한 창이 뜨면 사용자가 직접 승인해 주세요.",
                 step.label_ko
             ),
             command_preview: Some(step.command_preview.to_string()),
@@ -1599,11 +1775,8 @@ fn execute_install_action(
         },
     )?;
 
-    let install_evidence = run_program_with_timeout(
-        step.program,
-        step.args,
-        Duration::from_secs(EXECUTION_TIMEOUT_SECONDS),
-    );
+    let install_evidence =
+        run_install_program(step, Duration::from_secs(EXECUTION_TIMEOUT_SECONDS));
 
     if !install_evidence.stdout_redacted.is_empty() {
         emit_execution_event(
@@ -1714,15 +1887,25 @@ fn run_allowed_command(step: &RecipeStep) -> CommandEvidence {
 }
 
 fn run_program_with_timeout(program: &str, args: &[&str], timeout: Duration) -> CommandEvidence {
-    let start = Instant::now();
     let mut command = command_for_program(program, args);
-    command.stdout(Stdio::piped()).stderr(Stdio::piped());
 
     #[cfg(target_os = "windows")]
     if let Some(path) = refreshed_windows_path() {
         command.env("PATH", path);
         command.creation_flags(CREATE_NO_WINDOW);
     }
+
+    #[cfg(target_os = "macos")]
+    if let Some(path) = refreshed_macos_path() {
+        command.env("PATH", path);
+    }
+
+    run_prepared_command_with_timeout(command, timeout)
+}
+
+fn run_prepared_command_with_timeout(mut command: Command, timeout: Duration) -> CommandEvidence {
+    let start = Instant::now();
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
 
     let mut child = match command.spawn() {
         Ok(child) => child,
@@ -1764,6 +1947,15 @@ fn run_program_with_timeout(program: &str, args: &[&str], timeout: Duration) -> 
     }
 }
 
+fn run_install_program(step: &RecipeStep, timeout: Duration) -> CommandEvidence {
+    #[cfg(target_os = "macos")]
+    if step.id == "node.install.macos.pkg" {
+        return run_macos_node_pkg_install(timeout);
+    }
+
+    run_program_with_timeout(step.program, step.args, timeout)
+}
+
 fn command_for_program(program: &str, args: &[&str]) -> Command {
     #[cfg(target_os = "windows")]
     {
@@ -1802,6 +1994,50 @@ fn refreshed_windows_path() -> Option<String> {
     } else {
         Some(value)
     }
+}
+
+#[cfg(target_os = "macos")]
+fn refreshed_macos_path() -> Option<String> {
+    let login_shell_path = Command::new("/bin/zsh")
+        .args(["-lc", "printf %s \"$PATH\""])
+        .output()
+        .ok()
+        .and_then(|output| {
+            if output.status.success() {
+                Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
+            } else {
+                None
+            }
+        });
+    let current_path = std::env::var("PATH").ok();
+    let merged = merge_macos_path_entries([
+        login_shell_path.as_deref(),
+        current_path.as_deref(),
+        Some("/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"),
+    ]);
+
+    if merged.is_empty() {
+        None
+    } else {
+        Some(merged)
+    }
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn merge_macos_path_entries<'a>(path_values: impl IntoIterator<Item = Option<&'a str>>) -> String {
+    let mut entries: Vec<&str> = Vec::new();
+    for value in path_values.into_iter().flatten() {
+        for entry in value
+            .split(':')
+            .map(str::trim)
+            .filter(|entry| !entry.is_empty())
+        {
+            if !entries.contains(&entry) {
+                entries.push(entry);
+            }
+        }
+    }
+    entries.join(":")
 }
 
 fn classify_result(
@@ -2485,6 +2721,34 @@ mod tests {
     }
 
     #[test]
+    fn macos_external_flow_keeps_terminal_open_and_repairs_path() {
+        let vercel = external_flow_command_for("vercel.login")
+            .expect("Vercel external flow should have a launcher command");
+        let script = macos_external_flow_script(&vercel);
+
+        assert!(script.contains("/usr/libexec/path_helper"));
+        assert!(script.contains("/opt/homebrew/bin"));
+        assert!(script.contains("npm prefix -g"));
+        assert!(script.contains("vercel login"));
+        assert!(script.contains("vercel whoami"));
+        assert!(script.contains("read _"));
+        assert!(script.contains("이 창은 자동으로 닫히지 않습니다."));
+    }
+
+    #[test]
+    fn macos_path_merge_keeps_login_shell_first_and_adds_common_tool_paths() {
+        let merged = merge_macos_path_entries([
+            Some("/Users/student/.nvm/versions/node/v24/bin:/usr/bin"),
+            Some("/usr/bin:/bin"),
+            Some("/opt/homebrew/bin:/usr/local/bin"),
+        ]);
+
+        assert!(merged.starts_with("/Users/student/.nvm/versions/node/v24/bin:/usr/bin"));
+        assert!(merged.contains("/opt/homebrew/bin"));
+        assert_eq!(merged.matches("/usr/bin").count(), 1);
+    }
+
+    #[test]
     fn redacts_sensitive_values() {
         let sample = "token=ghp_abcdefghijklmnopqrstuvwxyz user=a@example.com path=/Users/genie code: ABCD-1234";
         let redacted = redact(sample);
@@ -2666,6 +2930,46 @@ mod tests {
             supabase_install.requires_elevation_method,
             ElevationMethod::None
         );
+    }
+
+    #[test]
+    fn macos_install_recipes_cover_node_and_npm_global_tools() {
+        let node_install =
+            find_allowed_command("node.install.macos.pkg").expect("macOS Node recipe should exist");
+        let pnpm_install =
+            find_allowed_command("pnpm.install.macos.npm").expect("macOS pnpm recipe should exist");
+        let gh_install = find_allowed_command("gh.install.macos.brew")
+            .expect("macOS GitHub CLI recipe should exist");
+        let vercel_install = find_allowed_command("vercel.install.macos.npm")
+            .expect("macOS Vercel CLI recipe should exist");
+
+        assert_eq!(node_install.target_os, Some("macos"));
+        assert_eq!(node_install.action_phase, ActionPhase::Install);
+        assert_eq!(node_install.risk_tier, RiskTier::PermissionPrompt);
+        assert_eq!(
+            node_install.requires_elevation_method,
+            ElevationMethod::OsascriptAdmin
+        );
+        assert_eq!(
+            execution_verify_step_id(node_install.id),
+            Some("node.version")
+        );
+        assert!(node_install.docs_url.contains("latest-v24.x"));
+
+        assert_eq!(pnpm_install.target_os, Some("macos"));
+        assert_eq!(
+            execution_verify_step_id(pnpm_install.id),
+            Some("pnpm.version")
+        );
+        assert!(pnpm_install.command_preview.contains("pnpm@latest"));
+
+        assert_eq!(gh_install.target_os, Some("macos"));
+        assert_eq!(gh_install.program, "brew");
+        assert_eq!(gh_install.args, ["install", "gh"]);
+
+        assert_eq!(vercel_install.target_os, Some("macos"));
+        assert_eq!(vercel_install.program, "npm");
+        assert!(vercel_install.command_preview.contains("vercel@latest"));
     }
 
     #[test]

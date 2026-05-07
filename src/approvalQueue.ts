@@ -41,9 +41,6 @@ export function deriveApprovalQueue(
 }
 
 const installActionByCheckId: Record<string, string> = {
-  "node.version": "node.install.windows.winget",
-  "pnpm.version": "pnpm.install.windows.npm",
-  "git.version": "git.install.windows.winget",
   "windows.vcredist.x64": "windows.vcredist.install.x64.winget",
   "windows.webview2.runtime": "windows.webview2.install.winget",
 };
@@ -57,23 +54,62 @@ function actionIdForCheck(
   checksById: Map<string, ToolCheck>,
   currentOs: SetupPlan["current_os"],
 ): string | undefined {
+  if (check.id === "node.version") {
+    return nodeInstallActionForOs(currentOs);
+  }
+
   if (check.id === "npm.version") {
-    return isInstalled(checksById.get("node.version")) ? undefined : "node.install.windows.winget";
+    if (isInstalled(checksById.get("node.version"))) {
+      return undefined;
+    }
+    return nodeInstallActionForOs(currentOs);
   }
 
   if (check.id === "pnpm.version" && !isInstalled(checksById.get("npm.version"))) {
     return undefined;
   }
 
+  if (check.id === "pnpm.version") {
+    if (currentOs === "macos") {
+      return "pnpm.install.macos.npm";
+    }
+    if (currentOs === "windows") {
+      return "pnpm.install.windows.npm";
+    }
+    return undefined;
+  }
+
+  if (check.id === "git.version") {
+    return currentOs === "windows" ? "git.install.windows.winget" : undefined;
+  }
+
   if (check.id === "gh.auth.status") {
-    return check.status === "missing" ? "gh.install.windows.winget" : "gh.auth.login";
+    if (check.status !== "missing") {
+      return "gh.auth.login";
+    }
+    if (currentOs === "windows") {
+      return "gh.install.windows.winget";
+    }
+    if (currentOs === "macos" && isInstalled(checksById.get("brew.version"))) {
+      return "gh.install.macos.brew";
+    }
+    return undefined;
   }
 
   if (check.id === "vercel.whoami") {
     if (!isInstalled(checksById.get("npm.version"))) {
       return undefined;
     }
-    return check.status === "missing" ? "vercel.install.windows.npm" : "vercel.login";
+    if (check.status !== "missing") {
+      return "vercel.login";
+    }
+    if (currentOs === "macos") {
+      return "vercel.install.macos.npm";
+    }
+    if (currentOs === "windows") {
+      return "vercel.install.windows.npm";
+    }
+    return undefined;
   }
 
   if (check.id === "codex.app.windows") {
@@ -110,6 +146,16 @@ function actionIdForCheck(
   }
 
   return installActionByCheckId[check.id];
+}
+
+function nodeInstallActionForOs(currentOs: SetupPlan["current_os"]): string | undefined {
+  if (currentOs === "macos") {
+    return "node.install.macos.pkg";
+  }
+  if (currentOs === "windows") {
+    return "node.install.windows.winget";
+  }
+  return undefined;
 }
 
 function resolveActionStep(

@@ -73,6 +73,7 @@
 | Verify | 새 login shell에서 `node -v`가 `^v24\.`이고 `npm -v` 성공 |
 | Repair | PATH 미반영 시 shell profile 업데이트 또는 Homebrew `node@24` keg-only PATH 안내 |
 | Admin | 공식 pkg는 OS installer 권한 프롬프트 가능, Homebrew는 설치 상태에 따라 sudo/CLT 필요 가능 |
+| Implemented action | `node.install.macos.pkg`: `latest-v24.x`의 macOS pkg를 다운로드하고 `osascript ... with administrator privileges`로 설치 |
 | Offline/cache | pkg와 `SHASUMS256.txt` 캐시 가능. 캐시 만료는 release checklist에서 latest-v24.x 비교 |
 | Rollback | 자동 삭제는 MVP 비목표. 실패 시 report에 partial install 기록 |
 
@@ -115,8 +116,8 @@ Beginner copy: “GitHub 로그인은 브라우저에서 진행됩니다. 이 �
 
 | 플랫폼 | Primary | Verify | Repair |
 | --- | --- | --- | --- |
-| macOS | Corepack 또는 npm 기반 설치 중 PRD gate에서 결정. MVP 기본은 `npm i -g pnpm` 또는 `corepack enable pnpm` 중 recipe dry-run으로 결정 | `pnpm -v` | global bin/PATH 확인 |
-| Windows | Corepack 또는 npm 기반 설치 중 PRD gate에서 결정. MVP 기본은 `npm i -g pnpm` 또는 `corepack enable pnpm` 중 recipe dry-run으로 결정 | 새 PowerShell에서 `pnpm -v` | PATH/새 세션 안내 |
+| macOS | `npm install -g pnpm@latest` (`pnpm.install.macos.npm`) | `pnpm -v` | login shell PATH, npm global bin/PATH 확인 |
+| Windows | `npm install -g pnpm@latest` (`pnpm.install.windows.npm`) | 새 PowerShell에서 `pnpm -v` | PATH/새 세션 안내 |
 
 Gate note: package manager는 pnpm primary + npm available이지만, pnpm 설치 방식은 Node v24와 OS별 PATH 안정성을 기준으로 recipe dry-run 후 고정한다.
 
@@ -124,8 +125,8 @@ Gate note: package manager는 pnpm primary + npm available이지만, pnpm 설치
 
 | 플랫폼 | Install | Auth | Verify | 금지 |
 | --- | --- | --- | --- | --- |
-| macOS | `pnpm i -g vercel` 또는 npm fallback | 최신 `vercel login` OAuth 2.0 Device Flow | `vercel whoami` | 금지: `vercel login --github`, `--gitlab`, `--bitbucket`, `--oob`, email 직접 로그인 플래그 |
-| Windows | `pnpm i -g vercel` 또는 npm fallback | 최신 `vercel login` OAuth 2.0 Device Flow | 새 PowerShell에서 `vercel whoami` | 금지: deprecated login flags |
+| macOS | `npm install -g vercel@latest` (`vercel.install.macos.npm`) | 최신 `vercel login` OAuth 2.0 Device Flow | `vercel whoami`; Terminal 창은 자동 종료하지 않음 | 금지: `vercel login --github`, `--gitlab`, `--bitbucket`, `--oob`, email 직접 로그인 플래그 |
+| Windows | `npm install -g vercel@latest` (`vercel.install.windows.npm`) | 최신 `vercel login` OAuth 2.0 Device Flow | 새 PowerShell에서 `vercel whoami` | 금지: deprecated login flags |
 
 Beginner copy: “Vercel 로그인은 브라우저/코드 확인 흐름으로 진행됩니다. 이 앱은 Vercel 비밀번호를 묻지 않습니다.”
 

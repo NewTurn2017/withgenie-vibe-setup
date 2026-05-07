@@ -10,7 +10,7 @@ function assert(condition: unknown, message: string): asserts condition {
 function step(id: string, action_phase: RecipeStep["action_phase"] = "detect"): RecipeStep {
   return {
     id,
-    target_os: id.includes(".windows.") ? "windows" : null,
+    target_os: id.includes(".windows.") ? "windows" : id.includes(".macos.") ? "macos" : null,
     label_ko: id,
     description_ko: id,
     verify_command_label: id,
@@ -36,15 +36,22 @@ const plan: SetupPlan = {
   current_os: "windows",
   forbidden_commands: [],
   security_notes: [],
-  steps: [
-    step("node.version"),
-    step("node.install.windows.winget", "install"),
-    step("npm.version"),
-    step("pnpm.version"),
-    step("pnpm.install.windows.npm", "install"),
-    step("vercel.whoami"),
-    step("vercel.install.windows.npm", "install"),
-    step("windows.vcredist.x64"),
+    steps: [
+      step("node.version"),
+      step("node.install.windows.winget", "install"),
+      step("node.install.macos.pkg", "install"),
+      step("npm.version"),
+      step("pnpm.version"),
+      step("pnpm.install.windows.npm", "install"),
+      step("pnpm.install.macos.npm", "install"),
+      step("vercel.whoami"),
+      step("vercel.install.windows.npm", "install"),
+      step("vercel.install.macos.npm", "install"),
+      step("gh.auth.status"),
+      step("gh.install.windows.winget", "install"),
+      step("gh.install.macos.brew", "install"),
+      step("brew.version"),
+      step("windows.vcredist.x64"),
     step("windows.vcredist.install.x64.winget", "install"),
     step("windows.webview2.runtime"),
     step("windows.webview2.install.winget", "install"),
@@ -55,6 +62,11 @@ const plan: SetupPlan = {
     step("supabase.login", "external_flow"),
     step("supabase.install.windows.standalone", "install"),
   ],
+};
+
+const macPlan: SetupPlan = {
+  ...plan,
+  current_os: "macos",
 };
 
 function check(id: string, status: CheckStatus): ToolCheck {
@@ -73,8 +85,12 @@ function check(id: string, status: CheckStatus): ToolCheck {
   };
 }
 
-function actionIds(statuses: Array<[string, CheckStatus]>, decisions: Record<string, ApprovalDecision> = {}) {
-  return deriveApprovalQueue(plan, statuses.map(([id, status]) => check(id, status)), decisions).map((card) => [card.id, card.step.id, card.step.action_phase]);
+function actionIds(
+  statuses: Array<[string, CheckStatus]>,
+  decisions: Record<string, ApprovalDecision> = {},
+  setupPlan: SetupPlan = plan,
+) {
+  return deriveApprovalQueue(setupPlan, statuses.map(([id, status]) => check(id, status)), decisions).map((card) => [card.id, card.step.id, card.step.action_phase]);
 }
 
 {
@@ -143,6 +159,47 @@ function actionIds(statuses: Array<[string, CheckStatus]>, decisions: Record<str
   assert(ids.some(([, actionId]) => actionId === "windows.vcredist.install.x64.winget"), "Codex flow should repair VC++ runtime before Codex install");
   assert(ids.some(([, actionId]) => actionId === "windows.webview2.install.winget"), "Codex flow should repair WebView2 runtime before Codex install");
   assert(!ids.some(([, actionId]) => actionId === "codex.app.install.windows.download"), "Codex installer should wait until Windows runtimes are installed");
+}
+
+{
+  const ids = actionIds([
+    ["node.version", "missing"],
+    ["npm.version", "missing"],
+  ], {}, macPlan);
+
+  assert(ids.some(([checkId, actionId, phase]) => checkId === "node.version" && actionId === "node.install.macos.pkg" && phase === "install"), "macOS Node failure should open the official pkg installer recipe");
+  assert(ids.filter(([, actionId]) => actionId === "node.install.macos.pkg").length === 1, "npm failure should not duplicate the macOS Node installer card");
+}
+
+{
+  const ids = actionIds([
+    ["node.version", "installed"],
+    ["npm.version", "installed"],
+    ["pnpm.version", "missing"],
+    ["vercel.whoami", "missing"],
+  ], {}, macPlan);
+
+  assert(ids.some(([, actionId]) => actionId === "pnpm.install.macos.npm"), "macOS pnpm should install through npm once npm is verified");
+  assert(ids.some(([, actionId]) => actionId === "vercel.install.macos.npm"), "macOS Vercel CLI should install through npm once npm is verified");
+}
+
+{
+  const ids = actionIds([
+    ["brew.version", "installed"],
+    ["gh.auth.status", "missing"],
+  ], {}, macPlan);
+
+  assert(ids.some(([, actionId]) => actionId === "gh.install.macos.brew"), "macOS GitHub CLI should install through Homebrew when Homebrew is ready");
+}
+
+{
+  const ids = actionIds([
+    ["brew.version", "missing"],
+    ["gh.auth.status", "missing"],
+  ], {}, macPlan);
+
+  assert(!ids.some(([, actionId]) => actionId === "gh.install.windows.winget"), "macOS must not show the Windows GitHub CLI installer");
+  assert(ids.some(([checkId, , phase]) => checkId === "gh.auth.status" && phase === "manual_guidance"), "macOS GitHub CLI should become manual guidance when Homebrew is not ready");
 }
 
 console.log("approvalQueue regression tests passed");
