@@ -11,12 +11,14 @@ use wait_timeout::ChildExt;
 use std::os::windows::process::CommandExt;
 
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
-const RECIPE_VERSION: &str = "2026.05.07.3";
+const RECIPE_VERSION: &str = "2026.05.07.4";
 const COMMAND_TIMEOUT_SECONDS: u64 = 12;
 const EXECUTION_TIMEOUT_SECONDS: u64 = 20 * 60;
 const NATIVE_MENU_LABELS_KO: [&str; 5] = ["파일", "편집", "보기", "창", "도움말"];
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
+#[cfg(target_os = "windows")]
+const CREATE_NEW_CONSOLE: u32 = 0x00000010;
 const CODEX_WINDOWS_INSTALLER_URL: &str =
     "https://get.microsoft.com/installer/download/9PLM9XGG6VKS?cid=website_cta_psi";
 const CODEX_WINDOWS_DETECT_SCRIPT: &str = "$app = Get-StartApps | Where-Object { $_.Name -like '*Codex*' } | Select-Object -First 1; if ($app) { $app.Name; exit 0 } Write-Error 'Codex app not found'; exit 1";
@@ -1247,12 +1249,13 @@ fn program_is_available(program: &str) -> bool {
 
 fn launch_external_flow_terminal(flow: &ExternalFlowCommand) -> CommandEvidence {
     let start = Instant::now();
-    let mut command = external_flow_launcher_command(flow);
 
     #[cfg(target_os = "windows")]
-    if let Some(path) = refreshed_windows_path() {
-        command.env("PATH", path);
+    {
+        return launch_windows_external_flow_terminal(flow, start);
     }
+
+    let mut command = external_flow_launcher_command(flow);
 
     match command.status() {
         Ok(status) => CommandEvidence {
@@ -1270,26 +1273,58 @@ fn launch_external_flow_terminal(flow: &ExternalFlowCommand) -> CommandEvidence 
     }
 }
 
-fn external_flow_launcher_command(flow: &ExternalFlowCommand) -> Command {
-    #[cfg(target_os = "windows")]
-    {
-        let mut command = Command::new("cmd");
-        command
-            .arg("/D")
-            .arg("/C")
-            .arg("start")
-            .arg("")
-            .arg("powershell.exe")
-            .arg("-NoExit")
-            .arg("-NoProfile")
-            .arg("-ExecutionPolicy")
-            .arg("Bypass")
-            .arg("-Command")
-            .arg(windows_external_flow_script(flow))
-            .creation_flags(CREATE_NO_WINDOW);
-        return command;
+#[cfg(target_os = "windows")]
+fn launch_windows_external_flow_terminal(
+    flow: &ExternalFlowCommand,
+    start: Instant,
+) -> CommandEvidence {
+    let script_path = match write_windows_external_flow_script_file(flow) {
+        Ok(path) => path,
+        Err(error) => {
+            return CommandEvidence {
+                exit_code: None,
+                duration_ms: start.elapsed().as_millis(),
+                stdout_redacted: String::new(),
+                stderr_redacted: redact(&error),
+            }
+        }
+    };
+
+    let mut command = Command::new("powershell.exe");
+    command
+        .arg("-NoExit")
+        .arg("-NoProfile")
+        .arg("-ExecutionPolicy")
+        .arg("Bypass")
+        .arg("-File")
+        .arg(&script_path)
+        .creation_flags(CREATE_NEW_CONSOLE);
+
+    if let Some(path) = refreshed_windows_path() {
+        command.env("PATH", path);
     }
 
+    match command.spawn() {
+        Ok(_) => CommandEvidence {
+            exit_code: Some(0),
+            duration_ms: start.elapsed().as_millis(),
+            stdout_redacted: String::new(),
+            stderr_redacted: String::new(),
+        },
+        Err(error) => CommandEvidence {
+            exit_code: None,
+            duration_ms: start.elapsed().as_millis(),
+            stdout_redacted: String::new(),
+            stderr_redacted: redact(&format!(
+                "{}. PowerShell script: {}",
+                error,
+                script_path.display()
+            )),
+        },
+    }
+}
+
+fn external_flow_launcher_command(flow: &ExternalFlowCommand) -> Command {
     #[cfg(target_os = "macos")]
     {
         let mut command = Command::new("osascript");
@@ -1306,6 +1341,40 @@ fn external_flow_launcher_command(flow: &ExternalFlowCommand) -> Command {
         let mut command = Command::new(flow.program);
         command.args(flow.args);
         command
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn write_windows_external_flow_script_file(
+    flow: &ExternalFlowCommand,
+) -> Result<std::path::PathBuf, String> {
+    let mut path = std::env::temp_dir();
+    path.push(format!(
+        "vibe-coding-setup-{}-{}.ps1",
+        windows_safe_file_stem(flow.program),
+        Utc::now().timestamp_millis()
+    ));
+    std::fs::write(&path, windows_external_flow_script(flow))
+        .map_err(|error| format!("로그인 PowerShell 스크립트를 만들 수 없습니다: {error}"))?;
+    Ok(path)
+}
+
+#[cfg(target_os = "windows")]
+fn windows_safe_file_stem(value: &str) -> String {
+    let safe = value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_') {
+                ch
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>();
+    if safe.is_empty() {
+        "login".to_string()
+    } else {
+        safe
     }
 }
 
@@ -2401,6 +2470,7 @@ mod tests {
         assert!(script.contains("$env:ComSpec /D /C"));
         assert!(script.contains("call vercel login"));
         assert!(script.contains("call vercel whoami"));
+        assert_eq!(script.matches("$env:ComSpec /D /C").count(), 2);
         assert!(!script.contains("pause"));
 
         let github = external_flow_command_for("gh.auth.login")

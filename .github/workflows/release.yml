@@ -19,14 +19,17 @@ jobs:
             platform: windows-latest
             args: ''
             rust-targets: ''
+            dmg-asset-arch: ''
           - label: macOS Apple Silicon
             platform: macos-latest
             args: '--target aarch64-apple-darwin'
             rust-targets: 'aarch64-apple-darwin,x86_64-apple-darwin'
+            dmg-asset-arch: aarch64
           - label: macOS Intel
             platform: macos-latest
             args: '--target x86_64-apple-darwin'
             rust-targets: 'aarch64-apple-darwin,x86_64-apple-darwin'
+            dmg-asset-arch: x64
     runs-on: ${{ matrix.platform }}
 
     steps:
@@ -61,12 +64,36 @@ jobs:
           npm run check
           npm run verify:docs
 
+      - name: Prepare Apple notarization key
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY_CONTENT }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${APPLE_API_KEY}" || -z "${APPLE_API_KEY_CONTENT}" ]]; then
+            echo "Apple notarization secrets are missing." >&2
+            exit 1
+          fi
+          install -d -m 700 "$RUNNER_TEMP/apple-notary"
+          key_path="$RUNNER_TEMP/apple-notary/AuthKey_${APPLE_API_KEY}.p8"
+          printf '%s' "$APPLE_API_KEY_CONTENT" > "$key_path"
+          chmod 600 "$key_path"
+          echo "APPLE_API_KEY_PATH=$key_path" >> "$GITHUB_ENV"
+
       - name: Build and upload signed Tauri bundles
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_PATH: ${{ env.APPLE_API_KEY_PATH }}
         with:
           tagName: v__VERSION__
           releaseName: '위드지니 셋업 v__VERSION__'
@@ -76,9 +103,54 @@ jobs:
             - Windows: `.exe` 설치 파일을 내려받아 실행하세요.
             - macOS: `.dmg` 파일을 내려받아 Applications로 옮기세요.
             - 앱 내 업데이트 확인은 이 릴리즈의 서명된 `latest.json`을 사용합니다.
-          releaseDraft: false
+          releaseDraft: true
           prerelease: false
           includeUpdaterJson: true
           updaterJsonPreferNsis: true
           assetNamePattern: 'withgenie-setup_[version]_[platform]_[arch][setup].[ext]'
           args: ${{ matrix.args }}
+
+      - name: Notarize, staple, and replace macOS DMG asset
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_PATH: ${{ env.APPLE_API_KEY_PATH }}
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          tag="v${version}"
+          dmg="$(find src-tauri/target -path '*/release/bundle/dmg/*.dmg' -type f | head -n 1)"
+          if [[ -z "${dmg}" ]]; then
+            echo "No DMG artifact found." >&2
+            exit 1
+          fi
+          xcrun notarytool submit "$dmg" \
+            --key "$APPLE_API_KEY_PATH" \
+            --key-id "$APPLE_API_KEY" \
+            --issuer "$APPLE_API_ISSUER" \
+            --wait
+          xcrun stapler staple "$dmg"
+          xcrun stapler validate "$dmg"
+          spctl -a -vvv -t install "$dmg"
+          asset_name="withgenie-setup_${version}_darwin_${{ matrix.dmg-asset-arch }}.dmg"
+          gh release upload "$tag" "$dmg#$asset_name" --clobber --repo "$GITHUB_REPOSITORY"
+
+  publish-release:
+    name: Publish release
+    needs: release-tauri
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Publish completed draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          gh release edit "v${version}" --draft=false --latest --repo "$GITHUB_REPOSITORY"
