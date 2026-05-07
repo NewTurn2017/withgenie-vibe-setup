@@ -876,6 +876,20 @@ fn execute_external_flow_action(step: &RecipeStep) -> Result<ExecutionOutcome, S
     let flow = external_flow_command_for(step.id)
         .ok_or_else(|| format!("외부 로그인 실행 레시피가 연결되지 않았습니다: {}", step.id))?;
 
+    if !program_is_available(flow.program) {
+        return Ok(ExecutionOutcome {
+            action_id: step.id.to_string(),
+            status: ExecutionStatus::Blocked,
+            message_ko: format!("{} 전에 CLI 설치가 필요합니다.", step.label_ko),
+            next_action_ko: format!(
+                "{} 명령을 찾지 못했습니다. 앱에서 '1분 점검 다시 하기'를 눌러 설치 단계부터 다시 진행하세요.",
+                flow.program
+            ),
+            command_preview: Some(step.command_preview.to_string()),
+            docs_url: Some(step.docs_url.to_string()),
+        });
+    }
+
     let launch_evidence = launch_external_flow_terminal(&flow);
     if launch_evidence.exit_code != Some(0) {
         let detail = first_non_empty_line(&launch_evidence.stderr_redacted)
@@ -898,10 +912,36 @@ fn execute_external_flow_action(step: &RecipeStep) -> Result<ExecutionOutcome, S
         action_id: step.id.to_string(),
         status: ExecutionStatus::NeedsBrowserAuth,
         message_ko: format!("{} 창을 열었습니다.", step.label_ko),
-        next_action_ko: "열린 명령 프롬프트와 브라우저에서 로그인을 완료하세요. 완료 후 앱으로 돌아와 '안전 진단 시작'을 다시 누르면 로그인 상태를 확인합니다.".to_string(),
+        next_action_ko: "열린 명령 프롬프트와 브라우저에서 로그인을 완료하세요. 완료 후 앱으로 돌아와 '1분 점검 다시 하기' 또는 상단의 큰 계속 버튼을 누르면 로그인 상태를 확인합니다.".to_string(),
         command_preview: Some(step.command_preview.to_string()),
         docs_url: Some(step.docs_url.to_string()),
     })
+}
+
+fn program_is_available(program: &str) -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        let mut command = Command::new("cmd");
+        command.arg("/C").arg("where").arg(program);
+        if let Some(path) = refreshed_windows_path() {
+            command.env("PATH", path);
+        }
+        command.creation_flags(CREATE_NO_WINDOW);
+        return command
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        Command::new("sh")
+            .arg("-c")
+            .arg(format!("command -v {program}"))
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false)
+    }
 }
 
 fn launch_external_flow_terminal(flow: &ExternalFlowCommand) -> CommandEvidence {
@@ -966,7 +1006,7 @@ fn external_flow_launcher_command(flow: &ExternalFlowCommand) -> Command {
 #[cfg(target_os = "windows")]
 fn windows_external_flow_script(flow: &ExternalFlowCommand) -> String {
     format!(
-        "echo Vibe Coding Setup - {} & echo. & echo 브라우저 로그인/코드 확인을 완료해 주세요. & echo 이 창은 자동으로 닫히지 않습니다. & echo. & {} & echo. & echo 로그인 명령이 끝났습니다. 검증 결과: & {} & echo. & echo 완료 후 앱으로 돌아가 '1분 점검'을 다시 눌러 주세요. & pause",
+        "echo Vibe Coding Setup - {} & echo. & echo 브라우저 로그인/코드 확인을 완료해 주세요. & echo 이 창은 자동으로 닫히지 않습니다. & echo. & {} & echo. & echo 로그인 명령이 끝났습니다. 검증 결과: & {} & echo. & echo 완료 후 앱으로 돌아가 '1분 점검 다시 하기' 또는 상단의 큰 계속 버튼을 눌러 주세요. & pause",
         flow.title_ko,
         windows_command_line(flow.program, flow.args),
         windows_command_line(flow.verify_program, flow.verify_args),
@@ -997,7 +1037,7 @@ fn windows_cmd_arg(value: &str) -> String {
 #[cfg(target_os = "macos")]
 fn macos_external_flow_script(flow: &ExternalFlowCommand) -> String {
     format!(
-        "echo 'Vibe Coding Setup - {}'; echo; echo '브라우저 로그인/코드 확인을 완료해 주세요.'; {}; echo; echo '로그인 명령이 끝났습니다. 검증 결과:'; {}; echo; echo \"완료 후 앱으로 돌아가 '1분 점검'을 다시 눌러 주세요.\"",
+        "echo 'Vibe Coding Setup - {}'; echo; echo '브라우저 로그인/코드 확인을 완료해 주세요.'; {}; echo; echo '로그인 명령이 끝났습니다. 검증 결과:'; {}; echo; echo \"완료 후 앱으로 돌아가 '1분 점검 다시 하기' 또는 상단의 큰 계속 버튼을 눌러 주세요.\"",
         flow.title_ko,
         posix_command_line(flow.program, flow.args),
         posix_command_line(flow.verify_program, flow.verify_args),
@@ -1383,10 +1423,7 @@ fn classify_result(
         );
     }
 
-    if stderr.contains("No such file")
-        || stderr.contains("not found")
-        || stderr.contains("cannot find")
-    {
+    if command_output_indicates_missing_program(stdout, stderr) {
         return (
             CheckStatus::Missing,
             None,
@@ -1401,6 +1438,18 @@ fn classify_result(
         format!("{} 확인이 끝나지 않았습니다.", step.label_ko),
         "권한, 로그인, PATH 또는 네트워크 상태를 확인하세요.".to_string(),
     )
+}
+
+fn command_output_indicates_missing_program(stdout: &str, stderr: &str) -> bool {
+    let combined = format!("{stdout}\n{stderr}").to_ascii_lowercase();
+    combined.contains("no such file")
+        || combined.contains("not found")
+        || combined.contains("cannot find")
+        || combined.contains("not recognized")
+        || combined.contains("is not recognized")
+        || combined.contains("내부 또는 외부 명령")
+        || combined.contains("실행할 수 있는 프로그램")
+        || combined.contains("배치 파일")
 }
 
 fn non_empty(value: &str) -> Option<String> {
@@ -1984,6 +2033,39 @@ mod tests {
         assert_eq!(node.risk_tier, RiskTier::Safe);
         assert_eq!(node.action_phase, ActionPhase::Detect);
         assert!(!node.requires_consent);
+    }
+
+    #[test]
+    fn windows_command_not_found_output_is_missing_not_repair() {
+        let vercel =
+            find_allowed_command("vercel.whoami").expect("Vercel diagnostic recipe should exist");
+        let evidence = CommandEvidence {
+            exit_code: Some(1),
+            duration_ms: 7,
+            stdout_redacted: "'vercel'은(는) 내부 또는 외부 명령, 실행할 수 있는 프로그램, 또는 배치 파일이 아닙니다.".to_string(),
+            stderr_redacted: String::new(),
+        };
+
+        let (status, _, beginner_message, _) = classify_result(&vercel, &evidence);
+
+        assert!(matches!(status, CheckStatus::Missing));
+        assert!(beginner_message.contains("설치"));
+    }
+
+    #[test]
+    fn english_command_not_found_output_is_missing_not_repair() {
+        let vercel =
+            find_allowed_command("vercel.whoami").expect("Vercel diagnostic recipe should exist");
+        let evidence = CommandEvidence {
+            exit_code: Some(1),
+            duration_ms: 7,
+            stdout_redacted: String::new(),
+            stderr_redacted: "'vercel' is not recognized as an internal or external command".to_string(),
+        };
+
+        let (status, _, _, _) = classify_result(&vercel, &evidence);
+
+        assert!(matches!(status, CheckStatus::Missing));
     }
 
     #[test]

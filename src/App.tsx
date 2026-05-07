@@ -87,11 +87,11 @@ function simpleStatusMessage(check: ToolCheck): string {
 function primaryActionLabelForQueue(cards: ApprovalCard[], checksCount: number): string {
   if (cards.length > 0) {
     const first = cards[0];
-    if (first.step.action_phase === "external_flow") return "브라우저 로그인 열기";
-    if (first.step.action_phase === "install") return "필요한 것 자동 설치";
-    return "다음 단계 진행";
+    if (first.step.action_phase === "external_flow") return "1분 점검 / 로그인 계속";
+    if (first.step.action_phase === "install") return "1분 점검 / 설치 계속";
+    return "1분 점검 / 다음 단계";
   }
-  return checksCount > 0 ? "다시 점검하기" : "1분 점검 시작";
+  return checksCount > 0 ? "1분 점검 다시 하기" : "1분 점검 시작";
 }
 
 function App() {
@@ -510,7 +510,7 @@ function App() {
           {activeScreen === "overview" && renderOverview(flowStages, continuePrimaryFlow, primaryFlowLabel, isBusy)}
           {activeScreen === "plan" && renderPlan(plan, loadPlan, isBusy)}
           {activeScreen === "diagnostics" && renderDiagnostics(checks, buildReport, isBusy)}
-          {activeScreen === "approval" && renderApprovalQueue(approvalQueue, focusedCard, logLines, executionStatuses, setApprovalDecision, executeApprovalAction, setFocusedCardId, busyTask === "execution")}
+          {activeScreen === "approval" && renderApprovalQueue(approvalQueue, focusedCard, logLines, executionStatuses, setApprovalDecision, executeApprovalAction, setFocusedCardId, runDiagnostics, busyTask === "execution")}
           {activeScreen === "report" && renderReport(report, checks, handoffPacketText, buildReport, copyReport, copyHandoffPacket, isBusy)}
           {activeScreen === "help" && renderHelp(plan, checkForUpdates, resetLocalProgress, isBusy)}
         </section>
@@ -687,6 +687,7 @@ function renderApprovalQueue(
   setDecision: (cardId: string, decision: ApprovalDecision) => void,
   executeAction: (card: ApprovalCard, autoContinue?: boolean) => void,
   setFocused: (cardId: string) => void,
+  rerunDiagnostics: () => void,
   isExecuting: boolean,
 ) {
   return (
@@ -697,6 +698,7 @@ function renderApprovalQueue(
           <h2>필요한 것만 순서대로 진행합니다.</h2>
         </div>
         <div className="inline-actions">
+          <button type="button" onClick={rerunDiagnostics} disabled={isExecuting}>1분 점검 다시 하기</button>
           <button type="button" className="primary" disabled={cards.length === 0 || isExecuting} onClick={() => cards[0] && executeAction(cards[0], true)}>남은 작업 계속하기</button>
         </div>
       </div>
