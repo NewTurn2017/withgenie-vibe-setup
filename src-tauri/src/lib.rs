@@ -11,7 +11,7 @@ use wait_timeout::ChildExt;
 use std::os::windows::process::CommandExt;
 
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
-const RECIPE_VERSION: &str = "2026.05.07.2";
+const RECIPE_VERSION: &str = "2026.05.07.3";
 const COMMAND_TIMEOUT_SECONDS: u64 = 12;
 const EXECUTION_TIMEOUT_SECONDS: u64 = 20 * 60;
 const NATIVE_MENU_LABELS_KO: [&str; 5] = ["파일", "편집", "보기", "창", "도움말"];
@@ -1275,11 +1275,16 @@ fn external_flow_launcher_command(flow: &ExternalFlowCommand) -> Command {
     {
         let mut command = Command::new("cmd");
         command
+            .arg("/D")
             .arg("/C")
             .arg("start")
-            .arg(format!("Vibe Coding Setup - {}", flow.title_ko))
-            .arg("cmd")
-            .arg("/K")
+            .arg("")
+            .arg("powershell.exe")
+            .arg("-NoExit")
+            .arg("-NoProfile")
+            .arg("-ExecutionPolicy")
+            .arg("Bypass")
+            .arg("-Command")
             .arg(windows_external_flow_script(flow))
             .creation_flags(CREATE_NO_WINDOW);
         return command;
@@ -1304,17 +1309,35 @@ fn external_flow_launcher_command(flow: &ExternalFlowCommand) -> Command {
     }
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", test))]
 fn windows_external_flow_script(flow: &ExternalFlowCommand) -> String {
     format!(
-        "echo Vibe Coding Setup - {} & echo. & echo 브라우저 로그인/코드 확인을 완료해 주세요. & echo 이 창은 자동으로 닫히지 않습니다. & echo. & {} & echo. & echo 로그인 명령이 끝났습니다. 검증 결과: & {} & echo. & echo 완료 후 앱으로 돌아가 '1분 점검 다시 하기' 또는 상단의 큰 계속 버튼을 눌러 주세요. & pause",
-        flow.title_ko,
-        windows_command_line(flow.program, flow.args),
-        windows_command_line(flow.verify_program, flow.verify_args),
+        "$ErrorActionPreference = 'Continue'; \
+         try {{ $Host.UI.RawUI.WindowTitle = {} }} catch {{ }}; \
+         try {{ [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new() }} catch {{ }}; \
+         $machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine'); \
+         $userPath = [Environment]::GetEnvironmentVariable('Path', 'User'); \
+         $paths = @($machinePath, $userPath) | Where-Object {{ $_ }}; \
+         $env:PATH = $paths -join ';'; \
+         Write-Host {}; Write-Host ''; \
+         Write-Host '브라우저 로그인/코드 확인을 완료해 주세요.'; \
+         Write-Host '이 창은 자동으로 닫히지 않습니다.'; Write-Host ''; \
+         & $env:ComSpec /D /C {}; \
+         Write-Host ''; Write-Host '로그인 명령이 끝났습니다. 검증 결과:'; \
+         & $env:ComSpec /D /C {}; \
+         Write-Host ''; \
+         Write-Host \"완료 후 앱으로 돌아가 '1분 점검 다시 하기' 또는 상단의 큰 계속 버튼을 눌러 주세요.\"; \
+         Write-Host ''; \
+         Read-Host '창을 닫으려면 Enter를 누르세요'; \
+         exit",
+        powershell_single_quoted(&format!("Vibe Coding Setup - {}", flow.title_ko)),
+        powershell_single_quoted(&format!("Vibe Coding Setup - {}", flow.title_ko)),
+        powershell_single_quoted(&windows_command_line(flow.program, flow.args)),
+        powershell_single_quoted(&windows_command_line(flow.verify_program, flow.verify_args)),
     )
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", test))]
 fn windows_command_line(program: &str, args: &[&str]) -> String {
     let command_line = std::iter::once(program)
         .chain(args.iter().copied())
@@ -1336,7 +1359,7 @@ fn windows_shell_needs_call(program: &str) -> bool {
     )
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", test))]
 fn windows_cmd_arg(value: &str) -> String {
     if value
         .chars()
@@ -1346,6 +1369,11 @@ fn windows_cmd_arg(value: &str) -> String {
     } else {
         format!("\"{}\"", value.replace('"', "\\\""))
     }
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn powershell_single_quoted(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
 }
 
 #[cfg(target_os = "macos")]
@@ -2363,16 +2391,17 @@ mod tests {
         assert!(!windows_shell_needs_call("supabase"));
     }
 
-    #[cfg(target_os = "windows")]
     #[test]
-    fn windows_external_flow_uses_call_for_vercel_batch_shim() {
+    fn windows_external_flow_keeps_powershell_open_for_vercel_batch_shim() {
         let vercel = external_flow_command_for("vercel.login")
             .expect("Vercel external flow should have a launcher command");
         let script = windows_external_flow_script(&vercel);
 
+        assert!(script.contains("Read-Host"));
+        assert!(script.contains("$env:ComSpec /D /C"));
         assert!(script.contains("call vercel login"));
         assert!(script.contains("call vercel whoami"));
-        assert!(script.contains("pause"));
+        assert!(!script.contains("pause"));
 
         let github = external_flow_command_for("gh.auth.login")
             .expect("GitHub external flow should have a launcher command");

@@ -1,6 +1,6 @@
 [package]
 name = "withgenie-vibe-setup"
-version = "0.1.16"
+version = "0.1.17"
 description = "Beginner-friendly Korean GUI setup helper for web development classes"
 authors = ["WithGenie"]
 edition = "2021"
