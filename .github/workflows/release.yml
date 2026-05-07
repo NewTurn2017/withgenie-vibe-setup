@@ -136,7 +136,9 @@ jobs:
           xcrun stapler validate "$dmg"
           spctl -a -vvv -t install "$dmg"
           asset_name="withgenie-setup_${version}_darwin_${{ matrix.dmg-asset-arch }}.dmg"
-          gh release upload "$tag" "$dmg#$asset_name" --clobber --repo "$GITHUB_REPOSITORY"
+          renamed_dmg="$RUNNER_TEMP/$asset_name"
+          cp "$dmg" "$renamed_dmg"
+          gh release upload "$tag" "$renamed_dmg" --clobber --repo "$GITHUB_REPOSITORY"
 
   publish-release:
     name: Publish release
