@@ -1,15 +1,18 @@
 import { execFileSync } from "node:child_process";
+import { createRequire } from "node:module";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
+const require = createRequire(import.meta.url);
 const outDir = join(tmpdir(), "vibe-setup-approval-test");
+const tscBin = require.resolve("typescript/bin/tsc");
 rmSync(outDir, { recursive: true, force: true });
 
 execFileSync(
-  process.platform === "win32" ? "npx.cmd" : "npx",
+  process.execPath,
   [
-    "tsc",
+    tscBin,
     "--target",
     "ES2020",
     "--module",
