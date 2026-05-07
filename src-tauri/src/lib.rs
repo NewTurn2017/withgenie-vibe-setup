@@ -1316,11 +1316,24 @@ fn windows_external_flow_script(flow: &ExternalFlowCommand) -> String {
 
 #[cfg(target_os = "windows")]
 fn windows_command_line(program: &str, args: &[&str]) -> String {
-    std::iter::once(program)
+    let command_line = std::iter::once(program)
         .chain(args.iter().copied())
         .map(windows_cmd_arg)
         .collect::<Vec<_>>()
-        .join(" ")
+        .join(" ");
+    if windows_shell_needs_call(program) {
+        format!("call {command_line}")
+    } else {
+        command_line
+    }
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn windows_shell_needs_call(program: &str) -> bool {
+    matches!(
+        program.to_ascii_lowercase().as_str(),
+        "vercel" | "npm" | "pnpm"
+    )
 }
 
 #[cfg(target_os = "windows")]
@@ -2339,6 +2352,33 @@ mod tests {
         assert_eq!(supabase.args, ["login"]);
         assert_eq!(supabase.verify_program, "supabase");
         assert_eq!(supabase.verify_args, ["projects", "list"]);
+    }
+
+    #[test]
+    fn npm_cli_shims_are_called_from_windows_external_flow_scripts() {
+        assert!(windows_shell_needs_call("vercel"));
+        assert!(windows_shell_needs_call("npm"));
+        assert!(windows_shell_needs_call("pnpm"));
+        assert!(!windows_shell_needs_call("gh"));
+        assert!(!windows_shell_needs_call("supabase"));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_external_flow_uses_call_for_vercel_batch_shim() {
+        let vercel = external_flow_command_for("vercel.login")
+            .expect("Vercel external flow should have a launcher command");
+        let script = windows_external_flow_script(&vercel);
+
+        assert!(script.contains("call vercel login"));
+        assert!(script.contains("call vercel whoami"));
+        assert!(script.contains("pause"));
+
+        let github = external_flow_command_for("gh.auth.login")
+            .expect("GitHub external flow should have a launcher command");
+        let github_script = windows_external_flow_script(&github);
+        assert!(github_script.contains("gh auth login"));
+        assert!(!github_script.contains("call gh"));
     }
 
     #[test]

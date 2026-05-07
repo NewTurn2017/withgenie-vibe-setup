@@ -25,8 +25,8 @@ WithGenie에서 만든 초보자용 바이브코딩 수업 준비 도우미입�
 
 | 내 컴퓨터 | 받기 |
 | --- | --- |
-| **macOS** (M1/M2/M3/M4 등 최근 Mac) | [Vibe Coding Setup 받기 (.dmg)](https://github.com/NewTurn2017/withgenie-vibe-setup/releases/download/v0.1.15/withgenie-setup_0.1.15_darwin_aarch64.dmg) |
-| **Windows** 10 / 11 | [Vibe Coding Setup 받기 (.exe)](https://github.com/NewTurn2017/withgenie-vibe-setup/releases/download/v0.1.15/withgenie-setup_0.1.15_windows_x64-setup.exe) |
+| **macOS** (M1/M2/M3/M4 등 최근 Mac) | [Vibe Coding Setup 받기 (.dmg)](https://github.com/NewTurn2017/withgenie-vibe-setup/releases/download/v0.1.16/withgenie-setup_0.1.16_darwin_aarch64.dmg) |
+| **Windows** 10 / 11 | [Vibe Coding Setup 받기 (.exe)](https://github.com/NewTurn2017/withgenie-vibe-setup/releases/download/v0.1.16/withgenie-setup_0.1.16_windows_x64-setup.exe) |
 
 ## 설치하기
 
