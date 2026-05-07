@@ -44,6 +44,10 @@ const plan: SetupPlan = {
     step("pnpm.install.windows.npm", "install"),
     step("vercel.whoami"),
     step("vercel.install.windows.npm", "install"),
+    step("codex.app.windows"),
+    step("codex.app.install.windows.download", "install"),
+    step("supabase.version"),
+    step("supabase.install.windows.standalone", "install"),
   ],
 };
 
@@ -90,6 +94,16 @@ function actionIds(statuses: Array<[string, CheckStatus]>, decisions: Record<str
 
   assert(ids.some(([, actionId]) => actionId === "pnpm.install.windows.npm"), "pnpm should install once npm is verified");
   assert(ids.some(([, actionId]) => actionId === "vercel.install.windows.npm"), "vercel should install once npm is verified");
+}
+
+{
+  const ids = actionIds([
+    ["codex.app.windows", "missing"],
+    ["supabase.version", "missing"],
+  ]);
+
+  assert(ids.some(([, actionId]) => actionId === "codex.app.install.windows.download"), "Codex app should open the Microsoft installer step when missing");
+  assert(ids.some(([, actionId]) => actionId === "supabase.install.windows.standalone"), "Supabase CLI should use the Windows standalone installer step when missing");
 }
 
 console.log("approvalQueue regression tests passed");

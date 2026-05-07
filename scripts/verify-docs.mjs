@@ -17,6 +17,9 @@ for (const line of recipe.split('\n')) {
   if (line.includes('vercel login --github') && !/금지|Forbidden|forbidden|deprecated|lint/.test(line)) {
     failures.push('deprecated Vercel flag outside forbidden context');
   }
+  if (line.includes('npm install -g supabase') && !/금지|Forbidden|forbidden|지원되지|unsupported|lint/.test(line)) {
+    failures.push('unsupported Supabase global npm install outside forbidden/support warning context');
+  }
 }
 
 JSON.parse(readFileSync('schemas/health-report.schema.json', 'utf8'));

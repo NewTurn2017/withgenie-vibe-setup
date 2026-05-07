@@ -11,12 +11,17 @@ use wait_timeout::ChildExt;
 use std::os::windows::process::CommandExt;
 
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
-const RECIPE_VERSION: &str = "2026.05.01";
+const RECIPE_VERSION: &str = "2026.05.07";
 const COMMAND_TIMEOUT_SECONDS: u64 = 12;
 const EXECUTION_TIMEOUT_SECONDS: u64 = 20 * 60;
 const NATIVE_MENU_LABELS_KO: [&str; 5] = ["파일", "편집", "보기", "창", "도움말"];
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
+const CODEX_WINDOWS_INSTALLER_URL: &str =
+    "https://get.microsoft.com/installer/download/9PLM9XGG6VKS?cid=website_cta_psi";
+const CODEX_WINDOWS_DETECT_SCRIPT: &str = "$app = Get-StartApps | Where-Object { $_.Name -like '*Codex*' } | Select-Object -First 1; if ($app) { $app.Name; exit 0 } Write-Error 'Codex app not found'; exit 1";
+const CODEX_WINDOWS_INSTALL_SCRIPT: &str = "$ErrorActionPreference = 'Stop'; $url = 'https://get.microsoft.com/installer/download/9PLM9XGG6VKS?cid=website_cta_psi'; $installer = Join-Path $env:TEMP 'Codex Installer.exe'; Invoke-WebRequest -Uri $url -OutFile $installer; Start-Process -FilePath $installer -Wait";
+const SUPABASE_WINDOWS_INSTALL_SCRIPT: &str = "$ErrorActionPreference = 'Stop'; $installDir = Join-Path $env:LOCALAPPDATA 'Programs\\Supabase'; New-Item -ItemType Directory -Force -Path $installDir | Out-Null; $headers = @{ 'User-Agent' = 'Vibe Coding Setup' }; $release = Invoke-RestMethod -Headers $headers -Uri 'https://api.github.com/repos/supabase/cli/releases/latest'; $asset = $release.assets | Where-Object { $_.name -eq 'supabase_windows_amd64.tar.gz' } | Select-Object -First 1; if (-not $asset) { throw 'Supabase Windows x64 package not found' }; $archive = Join-Path $env:TEMP $asset.name; Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $archive; tar -xzf $archive -C $installDir; $exe = Join-Path $installDir 'supabase.exe'; if (-not (Test-Path $exe)) { $found = Get-ChildItem $installDir -Recurse -Filter 'supabase.exe' | Select-Object -First 1; if ($found) { Copy-Item $found.FullName $exe -Force } }; if (-not (Test-Path $exe)) { throw 'supabase.exe not found after extraction' }; $userPath = [Environment]::GetEnvironmentVariable('Path', 'User'); if ((($userPath -split ';') -notcontains $installDir)) { [Environment]::SetEnvironmentVariable('Path', (($userPath.TrimEnd(';') + ';' + $installDir).TrimStart(';')), 'User') }; & $exe --version";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -570,6 +575,58 @@ fn allowed_commands() -> Vec<RecipeStep> {
             requires_elevation_method: ElevationMethod::UserManaged,
         },
         RecipeStep {
+            id: "codex.app.windows",
+            target_os: Some("windows"),
+            label_ko: "Codex 앱 확인",
+            description_ko: "Windows에 Codex 데스크톱 앱이 설치되어 있는지 확인합니다.",
+            program: "powershell",
+            args: &["-NoProfile", "-Command", CODEX_WINDOWS_DETECT_SCRIPT],
+            required_for_class: cfg!(target_os = "windows"),
+            requires_consent: false,
+            may_require_elevation: false,
+            requires_browser: false,
+            required_version_hint: None,
+            docs_url: CODEX_WINDOWS_INSTALLER_URL,
+            risk_tier: RiskTier::Safe,
+            action_phase: ActionPhase::Detect,
+            approval_copy_ko: "현재 상태만 확인하며 컴퓨터 설정을 바꾸지 않습니다.",
+            expected_permission_prompt_ko: "권한 창이 나타나지 않습니다.",
+            package_source: None,
+            rollback_note_ko: "변경 사항이 없어 되돌릴 작업이 없습니다.",
+            support_handoff_ko: "시작 메뉴에서 Codex 앱이 보이는지 확인하세요.",
+            command_preview: "PowerShell Start menu Codex app check",
+            requires_elevation_method: ElevationMethod::None,
+        },
+        RecipeStep {
+            id: "codex.app.install.windows.download",
+            target_os: Some("windows"),
+            label_ko: "Codex 앱 다운로드/설치",
+            description_ko: "Microsoft 공식 다운로드 링크로 Codex 앱 설치 파일을 내려받아 실행합니다.",
+            program: "powershell",
+            args: &[
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                CODEX_WINDOWS_INSTALL_SCRIPT,
+            ],
+            required_for_class: false,
+            requires_consent: true,
+            may_require_elevation: true,
+            requires_browser: true,
+            required_version_hint: None,
+            docs_url: CODEX_WINDOWS_INSTALLER_URL,
+            risk_tier: RiskTier::UserMediated,
+            action_phase: ActionPhase::Install,
+            approval_copy_ko: "Microsoft 공식 Codex 앱 설치 파일을 내려받아 실행합니다. 설치 화면이 뜨면 사용자가 직접 진행합니다.",
+            expected_permission_prompt_ko: "브라우저 다운로드, 설치 관리자, Windows 권한 확인 창이 나타날 수 있습니다.",
+            package_source: Some("Microsoft Store: 9PLM9XGG6VKS"),
+            rollback_note_ko: "Windows 설정 > 앱에서 Codex를 제거할 수 있습니다.",
+            support_handoff_ko: "Codex Installer.exe 다운로드/실행 여부와 시작 메뉴 등록 여부를 확인하세요.",
+            command_preview: "download and run Codex Installer.exe from Microsoft",
+            requires_elevation_method: ElevationMethod::UserManaged,
+        },
+        RecipeStep {
             id: "vercel.whoami",
             target_os: None,
             label_ko: "Vercel 로그인 확인",
@@ -637,6 +694,81 @@ fn allowed_commands() -> Vec<RecipeStep> {
             support_handoff_ko: "브라우저 로그인 단계에서 막혔는지, CLI 인증 상태가 실패했는지 확인하세요.",
             command_preview: "vercel login",
             requires_elevation_method: ElevationMethod::UserManaged,
+        },
+        RecipeStep {
+            id: "supabase.version",
+            target_os: None,
+            label_ko: "Supabase CLI 확인",
+            description_ko: "Supabase 프로젝트와 데이터베이스 작업에 사용할 CLI가 준비되어 있는지 확인합니다.",
+            program: "supabase",
+            args: &["--version"],
+            required_for_class: true,
+            requires_consent: false,
+            may_require_elevation: false,
+            requires_browser: false,
+            required_version_hint: None,
+            docs_url: "https://supabase.com/docs/guides/local-development/cli/getting-started",
+            risk_tier: RiskTier::Safe,
+            action_phase: ActionPhase::Detect,
+            approval_copy_ko: "현재 상태만 확인하며 컴퓨터 설정을 바꾸지 않습니다.",
+            expected_permission_prompt_ko: "권한 창이 나타나지 않습니다.",
+            package_source: None,
+            rollback_note_ko: "변경 사항이 없어 되돌릴 작업이 없습니다.",
+            support_handoff_ko: "supabase --version 실행 여부와 PATH 등록 상태를 확인하세요.",
+            command_preview: "supabase --version",
+            requires_elevation_method: ElevationMethod::None,
+        },
+        RecipeStep {
+            id: "supabase.install.windows.standalone",
+            target_os: Some("windows"),
+            label_ko: "Supabase CLI 설치",
+            description_ko: "공식 GitHub 릴리스의 Windows용 독립 실행 파일을 내려받고 사용자 PATH에 등록합니다.",
+            program: "powershell",
+            args: &[
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                SUPABASE_WINDOWS_INSTALL_SCRIPT,
+            ],
+            required_for_class: false,
+            requires_consent: true,
+            may_require_elevation: false,
+            requires_browser: false,
+            required_version_hint: None,
+            docs_url: "https://supabase.com/docs/guides/local-development/cli/getting-started",
+            risk_tier: RiskTier::UserMediated,
+            action_phase: ActionPhase::Install,
+            approval_copy_ko: "Supabase 공식 릴리스에서 CLI를 내려받아 현재 사용자 폴더에 설치합니다.",
+            expected_permission_prompt_ko: "보통 권한 창이 나타나지 않습니다. 네트워크 다운로드가 필요합니다.",
+            package_source: Some("GitHub release: supabase/cli windows_amd64"),
+            rollback_note_ko: "%LOCALAPPDATA%\\Programs\\Supabase 폴더와 사용자 PATH 항목을 삭제하면 제거할 수 있습니다.",
+            support_handoff_ko: "다운로드 네트워크 상태, tar 압축 해제 가능 여부, supabase --version 결과를 확인하세요.",
+            command_preview: "download supabase_windows_amd64.tar.gz and add supabase.exe to user PATH",
+            requires_elevation_method: ElevationMethod::None,
+        },
+        RecipeStep {
+            id: "supabase.install.macos.brew",
+            target_os: Some("macos"),
+            label_ko: "Supabase CLI 설치",
+            description_ko: "Homebrew로 Supabase CLI를 설치합니다.",
+            program: "brew",
+            args: &["install", "supabase/tap/supabase"],
+            required_for_class: false,
+            requires_consent: true,
+            may_require_elevation: false,
+            requires_browser: false,
+            required_version_hint: None,
+            docs_url: "https://supabase.com/docs/guides/local-development/cli/getting-started",
+            risk_tier: RiskTier::UserMediated,
+            action_phase: ActionPhase::Install,
+            approval_copy_ko: "Supabase 공식 문서의 Homebrew 방식으로 CLI를 설치합니다.",
+            expected_permission_prompt_ko: "보통 권한 창이 나타나지 않습니다. Homebrew 설치가 필요합니다.",
+            package_source: Some("Homebrew: supabase/tap/supabase"),
+            rollback_note_ko: "brew uninstall supabase 로 제거할 수 있습니다.",
+            support_handoff_ko: "Homebrew 설치 여부와 brew install supabase/tap/supabase 로그를 확인하세요.",
+            command_preview: "brew install supabase/tap/supabase",
+            requires_elevation_method: ElevationMethod::None,
         },
         RecipeStep {
             id: "macos.version",
@@ -823,6 +955,9 @@ fn execution_verify_step_id(action_id: &str) -> Option<&'static str> {
         "node.install.windows.winget" => Some("node.version"),
         "pnpm.install.windows.npm" => Some("pnpm.version"),
         "git.install.windows.winget" => Some("git.version"),
+        "codex.app.install.windows.download" => Some("codex.app.windows"),
+        "supabase.install.windows.standalone" => Some("supabase.version"),
+        "supabase.install.macos.brew" => Some("supabase.version"),
         _ => None,
     }
 }
@@ -935,9 +1070,8 @@ fn program_is_available(program: &str) -> bool {
 
     #[cfg(not(target_os = "windows"))]
     {
-        Command::new("sh")
-            .arg("-c")
-            .arg(format!("command -v {program}"))
+        Command::new("which")
+            .arg(program)
             .output()
             .map(|output| output.status.success())
             .unwrap_or(false)
@@ -1622,6 +1756,7 @@ fn get_setup_plan() -> AppPlan {
             "vercel login --gitlab",
             "vercel login --bitbucket",
             "vercel login --oob",
+            "npm install -g supabase",
             "--token",
             "sh -c",
             "cmd /C <user-input>",
@@ -1629,6 +1764,7 @@ fn get_setup_plan() -> AppPlan {
         security_notes: vec![
             "이 프로그램은 비밀번호를 묻지 않습니다.",
             "GitHub와 Vercel 로그인은 공식 브라우저 흐름만 사용합니다.",
+            "Supabase CLI는 공식 문서 기준으로 npm 전역 설치를 사용하지 않습니다.",
             "모든 명령은 allowlist와 structured args로만 실행합니다.",
             "리포트 export 전 민감정보를 가립니다.",
         ],
@@ -2060,7 +2196,8 @@ mod tests {
             exit_code: Some(1),
             duration_ms: 7,
             stdout_redacted: String::new(),
-            stderr_redacted: "'vercel' is not recognized as an internal or external command".to_string(),
+            stderr_redacted: "'vercel' is not recognized as an internal or external command"
+                .to_string(),
         };
 
         let (status, _, _, _) = classify_result(&vercel, &evidence);
@@ -2108,6 +2245,10 @@ mod tests {
             .expect("Windows GitHub CLI install recipe should exist");
         let vercel_install = find_allowed_command("vercel.install.windows.npm")
             .expect("Windows Vercel CLI install recipe should exist");
+        let codex_install = find_allowed_command("codex.app.install.windows.download")
+            .expect("Windows Codex app install recipe should exist");
+        let supabase_install = find_allowed_command("supabase.install.windows.standalone")
+            .expect("Windows Supabase CLI install recipe should exist");
 
         assert_eq!(
             execution_verify_step_id(node_install.id),
@@ -2117,9 +2258,21 @@ mod tests {
             execution_verify_step_id(pnpm_install.id),
             Some("pnpm.version")
         );
+        assert_eq!(
+            execution_verify_step_id(codex_install.id),
+            Some("codex.app.windows")
+        );
+        assert_eq!(
+            execution_verify_step_id(supabase_install.id),
+            Some("supabase.version")
+        );
         assert!(node_install.command_preview.contains("OpenJS.NodeJS.LTS"));
         assert!(gh_install.command_preview.contains("GitHub.cli"));
         assert!(vercel_install.command_preview.contains("vercel@latest"));
+        assert!(codex_install.docs_url.contains("9PLM9XGG6VKS"));
+        assert!(supabase_install
+            .command_preview
+            .contains("supabase_windows_amd64"));
         assert_eq!(
             pnpm_install.requires_elevation_method,
             ElevationMethod::None
@@ -2128,6 +2281,25 @@ mod tests {
             vercel_install.requires_elevation_method,
             ElevationMethod::None
         );
+        assert_eq!(
+            supabase_install.requires_elevation_method,
+            ElevationMethod::None
+        );
+    }
+
+    #[test]
+    fn supabase_install_recipes_do_not_use_unsupported_global_npm_install() {
+        for step in allowed_commands()
+            .into_iter()
+            .filter(|step| step.id.starts_with("supabase."))
+        {
+            let command = command_preview_for(step.program, step.args);
+            assert!(
+                !command.contains("npm install -g supabase"),
+                "unsupported Supabase global install leaked into {}",
+                step.id
+            );
+        }
     }
 
     #[test]

@@ -52,6 +52,7 @@
 | Action phase | 의미 |
 | --- | --- |
 | `detect` | 상태 확인 |
+| `install` | 사용자가 승인한 설치/준비 작업 |
 | `external_flow` | 공식 브라우저/업데이트 흐름 |
 | `manual_guidance` | 사용자가 직접 진행하는 안내 |
 | `not_automated` | 자동 실행 금지 |
@@ -128,7 +129,25 @@ Gate note: package manager는 pnpm primary + npm available이지만, pnpm 설치
 
 Beginner copy: “Vercel 로그인은 브라우저/코드 확인 흐름으로 진행됩니다. 이 앱은 Vercel 비밀번호를 묻지 않습니다.”
 
-## 8. Homebrew / macOS prerequisites
+## 8. Codex 앱
+
+| 플랫폼 | Install | Detect | Verify | Notes |
+| --- | --- | --- | --- | --- |
+| Windows | Microsoft 공식 `Codex Installer.exe` 다운로드 링크 | 시작 메뉴 앱 목록에서 Codex 검색 | 설치 후 시작 메뉴 등록 확인 | 설치 화면과 권한 확인은 사용자가 직접 진행 |
+| macOS | 현재 자동화 비대상 | 앱 설치 여부는 수업 정책에 따라 별도 안내 | - | Windows 수업 흐름 우선 |
+
+Beginner copy: “Codex 앱 설치 화면이 열리면 안내에 따라 설치만 완료하세요.”
+
+## 9. Supabase CLI
+
+| 플랫폼 | Install | Detect | Verify | 금지 |
+| --- | --- | --- | --- | --- |
+| macOS | 공식 문서의 Homebrew 방식 `brew install supabase/tap/supabase` | `supabase --version` | `supabase --version` | 금지: `npm install -g supabase` |
+| Windows | 공식 GitHub 릴리스의 `supabase_windows_amd64.tar.gz` 독립 실행 파일을 사용자 폴더에 설치하고 PATH 등록 | `supabase --version` | 새 PowerShell에서 `supabase --version` | 금지: `npm install -g supabase` |
+
+주의: Supabase 공식 문서 기준으로 npm 전역 설치는 지원되지 않는다. Node/npm 기반 수업에서는 필요할 때 `npx supabase ...` 또는 프로젝트 dev dependency 방식도 안내할 수 있지만, 이 앱의 전역 CLI 준비는 standalone/Homebrew 경로를 사용한다.
+
+## 10. Homebrew / macOS prerequisites
 
 | 항목 | Detect | Install/Repair | Verify | Notes |
 | --- | --- | --- | --- | --- |
@@ -137,7 +156,7 @@ Beginner copy: “Vercel 로그인은 브라우저/코드 확인 흐름으로 �
 | Homebrew | `brew --version` | 공식 installer 안내/noninteractive 가능성 검토 | `brew --prefix` | Apple Silicon `/opt/homebrew`, Intel `/usr/local` |
 | shellenv | shell profile/PATH 확인 | `eval "$(brew shellenv)"` 계열 profile 반영 안내 | 새 login shell command visibility | 변경 파일 report 포함 |
 
-## 9. WinGet / Windows prerequisites
+## 11. WinGet / Windows prerequisites
 
 | 항목 | Detect | Install/Repair | Verify | Notes |
 | --- | --- | --- | --- | --- |
@@ -146,7 +165,7 @@ Beginner copy: “Vercel 로그인은 브라우저/코드 확인 흐름으로 �
 | WinGet source | `winget source list` | source reset/update 안내 | `winget search` 가능 | 조직 정책 차단 가능 |
 | Admin ability | elevation probe | 관리자 실행 안내 | elevated command 가능 여부 | UAC consent 필요 |
 
-## 10. WSL
+## 12. WSL
 
 | 정책 | Detect | Install/Repair | Verify | 상태 처리 |
 | --- | --- | --- | --- | --- |
@@ -155,14 +174,14 @@ Beginner copy: “Vercel 로그인은 브라우저/코드 확인 흐름으로 �
 
 MVP default: optional. 커리큘럼에서 Linux shell/Docker가 필수인 회차만 required로 전환한다.
 
-## 11. Tauri/WebView2/bootstrap support recipe
+## 13. Tauri/WebView2/bootstrap support recipe
 
 | 플랫폼 | Detect | Failure classes | Fallback |
 | --- | --- | --- | --- |
 | macOS | 앱 launch success, quarantine/Gatekeeper 상태 | unsigned/private build, Gatekeeper 차단 | 배포 문서, 스크린샷, fallback script bundle |
 | Windows | installer launch, WebView2 availability/bootstrap | SmartScreen, AV, WebView2 bootstrap fail, org policy | WebView2 안내, signed build 계획, fallback script bundle |
 
-## 12. Offline/cache fallback 필드
+## 14. Offline/cache fallback 필드
 
 각 다운로드 recipe는 release-time에 아래를 채운다.
 
@@ -178,22 +197,25 @@ offline_cache:
   fallback_if_cache_missing: "online download with checksum verification"
 ```
 
-## 13. Forbidden recipe lint rules
+## 15. Forbidden recipe lint rules
 
 - `vercel login --github` 사용 금지
+- `npm install -g supabase` 사용 금지
 - 앱 자체 PAT/token/password prompt 금지
 - raw shell string interpolation 금지
 - allowlist 없는 arbitrary command 실행 금지
 - checksum 없는 cached binary 사용 금지
 - WSL optional을 failure로 처리 금지
 
-## 14. Release-time freeze checklist
+## 16. Release-time freeze checklist
 
 - [ ] Node latest-v24.x patch 확인
 - [ ] Node pkg/MSI checksum 고정
 - [ ] Homebrew `node@24` stable version 확인
 - [ ] WinGet `OpenJS.NodeJS.LTS` manifest version 확인
 - [ ] Git/GitHub CLI/Vercel CLI package ID 확인
+- [ ] Codex 앱 다운로드 링크 확인
+- [ ] Supabase CLI 공식 설치 방식과 릴리스 asset 이름 확인
 - [ ] Vercel login flow 최신성 확인
 - [ ] WSL docs 최신성 확인
 - [ ] offline/cache artifact checksum 확인

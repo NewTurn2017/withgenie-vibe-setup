@@ -50,7 +50,11 @@ function isInstalled(check: ToolCheck | undefined): boolean {
   return check?.status === "installed";
 }
 
-function actionIdForCheck(check: ToolCheck, checksById: Map<string, ToolCheck>): string | undefined {
+function actionIdForCheck(
+  check: ToolCheck,
+  checksById: Map<string, ToolCheck>,
+  currentOs: SetupPlan["current_os"],
+): string | undefined {
   if (check.id === "npm.version") {
     return isInstalled(checksById.get("node.version")) ? undefined : "node.install.windows.winget";
   }
@@ -70,6 +74,20 @@ function actionIdForCheck(check: ToolCheck, checksById: Map<string, ToolCheck>):
     return check.status === "missing" ? "vercel.install.windows.npm" : "vercel.login";
   }
 
+  if (check.id === "codex.app.windows") {
+    return "codex.app.install.windows.download";
+  }
+
+  if (check.id === "supabase.version") {
+    if (currentOs === "windows") {
+      return "supabase.install.windows.standalone";
+    }
+    if (currentOs === "macos" && isInstalled(checksById.get("brew.version"))) {
+      return "supabase.install.macos.brew";
+    }
+    return undefined;
+  }
+
   return installActionByCheckId[check.id];
 }
 
@@ -79,7 +97,7 @@ function resolveActionStep(
   checksById: Map<string, ToolCheck>,
   check: ToolCheck,
 ): RecipeStep | undefined {
-  const installActionId = actionIdForCheck(check, checksById);
+  const installActionId = actionIdForCheck(check, checksById, plan.current_os);
   const installStep = installActionId ? stepsById.get(installActionId) : undefined;
   if (installStep && (!installStep.target_os || installStep.target_os === plan.current_os)) {
     return installStep;
