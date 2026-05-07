@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { relaunch } from "@tauri-apps/plugin-process";
@@ -87,9 +87,18 @@ function simpleStatusMessage(check: ToolCheck): string {
   return "선택 항목이에요";
 }
 
-function primaryActionLabelForQueue(cards: ApprovalCard[], checksCount: number): string {
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function primaryActionLabelForQueue(
+  cards: ApprovalCard[],
+  checksCount: number,
+  executionStatuses: Record<string, ExecutionStatus> = {},
+): string {
   if (cards.length > 0) {
     const first = cards[0];
+    if (first.step.action_phase === "external_flow" && executionStatuses[first.id] === "needs_browser_auth") return "로그인 완료 확인";
     if (first.step.action_phase === "external_flow") return "1분 점검 / 로그인 계속";
     if (first.step.action_phase === "install") return "1분 점검 / 설치 계속";
     return "1분 점검 / 다음 단계";
@@ -112,6 +121,7 @@ function App() {
   const [latestExecutionEvent, setLatestExecutionEvent] = useState<SetupExecutionEvent | null>(null);
   const [modalProgressPercent, setModalProgressPercent] = useState(0);
   const [progressStartedAt, setProgressStartedAt] = useState(() => Date.now());
+  const externalAuthPollsRef = useRef<Set<string>>(new Set());
 
   const isBusy = busyTask !== null;
   const requiredCount = useMemo(
@@ -261,13 +271,20 @@ function App() {
     ];
   }, [approvalQueue, browserQueueCount, busyTask, checks.length, installQueueCount, report]);
 
-  const primaryFlowLabel = primaryActionLabelForQueue(approvalQueue, checks.length);
+  const primaryFlowLabel = primaryActionLabelForQueue(approvalQueue, checks.length, executionStatuses);
 
 
 
   async function continuePrimaryFlow() {
     if (isBusy) return;
     if (approvalQueue[0]) {
+      if (
+        approvalQueue[0].step.action_phase === "external_flow"
+        && executionStatuses[approvalQueue[0].id] === "needs_browser_auth"
+      ) {
+        await runDiagnostics();
+        return;
+      }
       await executeApprovalAction(approvalQueue[0], true);
       return;
     }
@@ -287,7 +304,10 @@ function App() {
     setMessage(`승인 큐 항목을 '${approvalDecisionLabels[decision]}' 상태로 표시했습니다.`);
   }
 
-  async function refreshDiagnosticsAfterExecution(decisions: Record<string, ApprovalDecision>): Promise<ApprovalCard[]> {
+  async function refreshDiagnosticsAfterExecution(
+    decisions: Record<string, ApprovalDecision>,
+    options: { silent?: boolean; waitingCardId?: string } = {},
+  ): Promise<ApprovalCard[]> {
     const setupPlan = plan ?? await invoke<SetupPlan>("get_setup_plan");
     if (!plan) {
       setPlan(setupPlan);
@@ -311,7 +331,11 @@ function App() {
     setFocusedCardId(nextQueue[0]?.id ?? null);
     if (nextQueue.length > 0) {
       setActiveScreen("approval");
-      setMessage(`${nextQueue.length}개 항목이 남았습니다. 다음 항목으로 계속 진행할 수 있습니다.`);
+      if (options.silent && options.waitingCardId && nextQueue.some((card) => card.id === options.waitingCardId)) {
+        setMessage("아직 로그인 완료가 확인되지 않았습니다. 브라우저/명령 창에서 인증을 끝내면 자동으로 다시 확인합니다.");
+      } else {
+        setMessage(`${nextQueue.length}개 항목이 남았습니다. 다음 항목으로 계속 진행할 수 있습니다.`);
+      }
     } else {
       setActiveScreen("diagnostics");
       setMessage(nextReport.summary.beginner_message);
@@ -384,6 +408,9 @@ function App() {
             setMessage("설치 단계는 끝났습니다. 이제 브라우저 가입/로그인처럼 사용자가 직접 확인해야 하는 단계가 남았습니다.");
           }
         }
+      } else if (outcome.status === "needs_browser_auth") {
+        setMessage("브라우저/명령 창에서 로그인을 완료하세요. 완료되면 앱이 자동으로 다시 확인하고, 바로 확인하려면 '로그인 완료 확인'을 누르세요.");
+        void pollExternalAuthCompletion(card, nextDecisions);
       }
     } catch (error) {
       setExecutionStatuses((current) => ({ ...current, [card.id]: "blocked" }));
@@ -394,6 +421,33 @@ function App() {
       ]);
     } finally {
       setBusyTask(null);
+    }
+  }
+
+  async function pollExternalAuthCompletion(card: ApprovalCard, decisions: Record<string, ApprovalDecision>) {
+    if (externalAuthPollsRef.current.has(card.id)) {
+      return;
+    }
+
+    externalAuthPollsRef.current.add(card.id);
+    try {
+      for (let attempt = 0; attempt < 36; attempt += 1) {
+        await sleep(5000);
+        const nextQueue = await refreshDiagnosticsAfterExecution(decisions, {
+          silent: true,
+          waitingCardId: card.id,
+        });
+        if (!nextQueue.some((nextCard) => nextCard.id === card.id)) {
+          setExecutionStatuses((current) => ({ ...current, [card.id]: "done" }));
+          setMessage(`${friendlyCheckLabel(card.check)} 로그인이 확인되었습니다. 해당 버튼은 이제 사라집니다.`);
+          return;
+        }
+      }
+      setMessage("자동 확인 시간이 끝났습니다. 로그인 완료 후 '로그인 완료 확인'을 눌러 다시 확인하세요.");
+    } catch (error) {
+      setMessage(`로그인 완료 자동 확인 중 문제가 생겼습니다. '로그인 완료 확인'을 눌러 다시 확인하세요: ${String(error)}`);
+    } finally {
+      externalAuthPollsRef.current.delete(card.id);
     }
   }
 
@@ -747,6 +801,9 @@ function renderApprovalQueue(
   rerunDiagnostics: () => void,
   isExecuting: boolean,
 ) {
+  const firstCard = cards[0];
+  const firstNeedsAuthCheck = firstCard?.step.action_phase === "external_flow" && executionStatuses[firstCard.id] === "needs_browser_auth";
+
   return (
     <div className="screen-stack approval-stack">
       <div className="screen-heading">
@@ -756,7 +813,14 @@ function renderApprovalQueue(
         </div>
         <div className="inline-actions">
           <button type="button" onClick={rerunDiagnostics} disabled={isExecuting}>1분 점검 다시 하기</button>
-          <button type="button" className="primary" disabled={cards.length === 0 || isExecuting} onClick={() => cards[0] && executeAction(cards[0], true)}>남은 작업 계속하기</button>
+          <button
+            type="button"
+            className="primary"
+            disabled={cards.length === 0 || isExecuting}
+            onClick={() => firstNeedsAuthCheck ? rerunDiagnostics() : firstCard && executeAction(firstCard, true)}
+          >
+            {firstNeedsAuthCheck ? "로그인 완료 확인" : "남은 작업 계속하기"}
+          </button>
         </div>
       </div>
 
@@ -769,6 +833,7 @@ function renderApprovalQueue(
         <div className="content-scroll approval-list">
           {cards.map((card) => {
             const executionStatus = executionStatuses[card.id];
+            const waitingForExternalAuth = card.step.action_phase === "external_flow" && executionStatus === "needs_browser_auth";
             return (
             <article className={`approval-card ${riskTierClassName(card.step.risk_tier)}`} key={card.id} onClick={() => setFocused(card.id)}>
               <div className="approval-card-header">
@@ -778,10 +843,10 @@ function renderApprovalQueue(
                 </div>
                 <span>{riskTierLabels[card.step.risk_tier]}</span>
               </div>
-              <p>{card.step.requires_browser ? "브라우저가 열리면 로그인만 완료하세요." : "설치가 끝나면 앱이 다시 확인합니다."}</p>
+              <p>{waitingForExternalAuth ? "로그인 완료 여부를 자동으로 다시 확인 중입니다. 바로 확인하려면 아래 버튼을 누르세요." : card.step.requires_browser ? "브라우저가 열리면 로그인만 완료하세요." : "설치가 끝나면 앱이 다시 확인합니다."}</p>
               <p className="risk-description">{riskTierDescriptions[card.step.risk_tier]}</p>
               <div className="approval-actions">
-                <button type="button" className="primary" disabled={isExecuting} onClick={() => executeAction(card)}>{primaryApprovalActionLabel(card)}</button>
+                <button type="button" className="primary" disabled={isExecuting} onClick={() => waitingForExternalAuth ? rerunDiagnostics() : executeAction(card)}>{primaryApprovalActionLabel(card, executionStatus)}</button>
                 <button type="button" onClick={() => setDecision(card.id, "deferred")}>나중에</button>
                 <button type="button" onClick={() => setDecision(card.id, "ask_instructor")}>도움 요청</button>
               </div>
@@ -811,8 +876,11 @@ const executionStatusLabels: Record<ExecutionStatus, string> = {
   blocked: "막힘",
 };
 
-function primaryApprovalActionLabel(card: ApprovalCard): string {
+function primaryApprovalActionLabel(card: ApprovalCard, executionStatus?: ExecutionStatus): string {
   if (card.step.action_phase === "external_flow") {
+    if (executionStatus === "needs_browser_auth") {
+      return "로그인 완료 확인";
+    }
     return "브라우저 가입/로그인 시작";
   }
 
