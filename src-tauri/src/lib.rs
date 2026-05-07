@@ -11,7 +11,7 @@ use wait_timeout::ChildExt;
 use std::os::windows::process::CommandExt;
 
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
-const RECIPE_VERSION: &str = "2026.05.07.4";
+const RECIPE_VERSION: &str = "2026.05.07.5";
 const COMMAND_TIMEOUT_SECONDS: u64 = 12;
 const EXECUTION_TIMEOUT_SECONDS: u64 = 20 * 60;
 const NATIVE_MENU_LABELS_KO: [&str; 5] = ["파일", "편집", "보기", "창", "도움말"];
@@ -1252,24 +1252,27 @@ fn launch_external_flow_terminal(flow: &ExternalFlowCommand) -> CommandEvidence 
 
     #[cfg(target_os = "windows")]
     {
-        return launch_windows_external_flow_terminal(flow, start);
+        launch_windows_external_flow_terminal(flow, start)
     }
 
-    let mut command = external_flow_launcher_command(flow);
+    #[cfg(not(target_os = "windows"))]
+    {
+        let mut command = external_flow_launcher_command(flow);
 
-    match command.status() {
-        Ok(status) => CommandEvidence {
-            exit_code: status.code(),
-            duration_ms: start.elapsed().as_millis(),
-            stdout_redacted: String::new(),
-            stderr_redacted: String::new(),
-        },
-        Err(error) => CommandEvidence {
-            exit_code: None,
-            duration_ms: start.elapsed().as_millis(),
-            stdout_redacted: String::new(),
-            stderr_redacted: redact(&error.to_string()),
-        },
+        match command.status() {
+            Ok(status) => CommandEvidence {
+                exit_code: status.code(),
+                duration_ms: start.elapsed().as_millis(),
+                stdout_redacted: String::new(),
+                stderr_redacted: String::new(),
+            },
+            Err(error) => CommandEvidence {
+                exit_code: None,
+                duration_ms: start.elapsed().as_millis(),
+                stdout_redacted: String::new(),
+                stderr_redacted: redact(&error.to_string()),
+            },
+        }
     }
 }
 
@@ -1324,6 +1327,7 @@ fn launch_windows_external_flow_terminal(
     }
 }
 
+#[cfg(not(target_os = "windows"))]
 fn external_flow_launcher_command(flow: &ExternalFlowCommand) -> Command {
     #[cfg(target_os = "macos")]
     {
