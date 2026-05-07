@@ -1,7 +1,7 @@
 {
   "name": "withgenie-vibe-setup",
   "private": true,
-  "version": "0.1.6",
+  "version": "0.1.7",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "check": "tsc --noEmit",
-    "verify:docs": "node scripts/verify-docs.mjs"
+    "verify:docs": "node scripts/verify-docs.mjs",
+    "test:approval-queue": "node scripts/run-approval-queue-tests.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

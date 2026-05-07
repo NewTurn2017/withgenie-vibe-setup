@@ -8,8 +8,12 @@ on:
 
 jobs:
   verify:
-    name: Typecheck, docs, Rust tests
-    runs-on: macos-latest
+    name: Typecheck, docs, Rust tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v6
 
@@ -35,6 +39,9 @@ jobs:
 
       - name: Verify docs and schema
         run: npm run verify:docs
+
+      - name: Approval queue regression tests
+        run: npm run test:approval-queue
 
       - name: Build frontend
         run: npm run build

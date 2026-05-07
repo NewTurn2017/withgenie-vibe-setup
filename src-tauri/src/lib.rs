@@ -889,6 +889,19 @@ fn verify_after_install(
     Ok((status, detected_version, evidence))
 }
 
+
+fn install_output_indicates_existing_package(evidence: &CommandEvidence) -> bool {
+    let combined = format!(
+        "{}\n{}",
+        evidence.stdout_redacted.to_ascii_lowercase(),
+        evidence.stderr_redacted.to_ascii_lowercase()
+    );
+
+    combined.contains("existing package already installed")
+        || combined.contains("no newer package versions are available")
+        || combined.contains("already installed")
+}
+
 fn execute_install_action(
     app: &tauri::AppHandle,
     step: &RecipeStep,
@@ -963,7 +976,10 @@ fn execute_install_action(
         )?;
     }
 
-    if install_evidence.exit_code != Some(0) {
+    let install_finished_or_already_present = install_evidence.exit_code == Some(0)
+        || install_output_indicates_existing_package(&install_evidence);
+
+    if !install_finished_or_already_present {
         let detail = first_non_empty_line(&install_evidence.stderr_redacted)
             .or_else(|| first_non_empty_line(&install_evidence.stdout_redacted))
             .unwrap_or_else(|| "설치 명령이 성공 종료 코드를 반환하지 않았습니다.".to_string());
@@ -1741,6 +1757,18 @@ mod tests {
         );
         assert!(git_install.command_preview.contains("winget install"));
         assert!(git_install.expected_permission_prompt_ko.contains("UAC"));
+    }
+
+    #[test]
+    fn winget_existing_package_output_allows_verification_instead_of_blocking() {
+        let evidence = CommandEvidence {
+            exit_code: Some(1),
+            duration_ms: 42,
+            stdout_redacted: "Found an existing package already installed. Trying to upgrade the installed package...".to_string(),
+            stderr_redacted: String::new(),
+        };
+
+        assert!(install_output_indicates_existing_package(&evidence));
     }
 
     #[test]

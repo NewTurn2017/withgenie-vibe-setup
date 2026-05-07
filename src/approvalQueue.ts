@@ -85,7 +85,10 @@ function resolveActionStep(
     return installStep;
   }
 
-  return stepsById.get(check.id);
+  // If a failing diagnostic does not have a safe executable action for the
+  // current dependency state, do not expose the diagnostic recipe itself as a
+  // fake action. Falling back keeps the card in manual guidance mode.
+  return undefined;
 }
 
 function approvalReason(status: ToolCheck["status"]): string {

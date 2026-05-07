@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check } from "@tauri-apps/plugin-updater";
-import type { ApprovalCard, ApprovalDecision, CheckStatus, ExecuteSetupActionInput, ExecutionOutcome, HealthReport, SetupExecutionEvent, SetupPlan, ToolCheck } from "./types";
+import type { ApprovalCard, ApprovalDecision, CheckStatus, ExecuteSetupActionInput, ExecutionOutcome, ExecutionStatus, HealthReport, SetupExecutionEvent, SetupPlan, ToolCheck } from "./types";
 import { deriveApprovalQueue } from "./approvalQueue";
 import { buildLocalHandoffPacket, formatHandoffPacket } from "./handoffPacket";
 import { approvalDecisionLabels, riskTierClassName, riskTierDescriptions, riskTierLabels } from "./risk";
@@ -46,6 +46,7 @@ function App() {
   const [approvalDecisions, setApprovalDecisions] = useState<Record<string, ApprovalDecision>>(initialResumeState.approvalDecisions);
   const [focusedCardId, setFocusedCardId] = useState<string | null>(null);
   const [logLines, setLogLines] = useState<LogLine[]>([]);
+  const [executionStatuses, setExecutionStatuses] = useState<Record<string, ExecutionStatus>>({});
 
   const isBusy = busyTask !== null;
   const requiredCount = useMemo(
@@ -164,6 +165,7 @@ function App() {
     clearResumeState();
     setApprovalDecisions({});
     setActiveScreen("overview");
+    setExecutionStatuses({});
     setMessage("이 컴퓨터의 로컬 진행 상태를 초기화했습니다. 진단 기록 파일이나 외부 계정은 삭제하지 않습니다.");
   }
 
@@ -220,7 +222,8 @@ function App() {
     setFocusedCardId(card.id);
     const nextDecisions: Record<string, ApprovalDecision> = { ...decisionsBase, [card.id]: "approved" };
     setApprovalDecisions(nextDecisions);
-    setMessage(`승인 큐 항목을 '${approvalDecisionLabels.approved}' 상태로 표시했습니다.`);
+    setMessage(`승인 큐 항목을 '${approvalDecisionLabels.approved}' 상태로 표시했습니다. 이제 실제 실행/검증 상태를 따로 추적합니다.`);
+    setExecutionStatuses((current) => ({ ...current, [card.id]: "running" }));
     setBusyTask("execution");
     setLogLines((current) => [
       ...current,
@@ -233,6 +236,7 @@ function App() {
         approval_id: card.id,
       };
       const outcome = await invoke<ExecutionOutcome>("execute_setup_action", { input });
+      setExecutionStatuses((current) => ({ ...current, [card.id]: outcome.status }));
       setMessage(outcome.message_ko);
       setLogLines((current) => [
         ...current,
@@ -251,6 +255,7 @@ function App() {
         }
       }
     } catch (error) {
+      setExecutionStatuses((current) => ({ ...current, [card.id]: "blocked" }));
       setMessage(`작업을 시작하지 못했습니다: ${String(error)}`);
       setLogLines((current) => [
         ...current,
@@ -424,14 +429,14 @@ function App() {
           {activeScreen === "overview" && renderOverview()}
           {activeScreen === "plan" && renderPlan(plan, loadPlan, isBusy)}
           {activeScreen === "diagnostics" && renderDiagnostics(checks, buildReport, isBusy)}
-          {activeScreen === "approval" && renderApprovalQueue(approvalQueue, focusedCard, logLines, setApprovalDecision, executeApprovalAction, setFocusedCardId, busyTask === "execution")}
+          {activeScreen === "approval" && renderApprovalQueue(approvalQueue, focusedCard, logLines, executionStatuses, setApprovalDecision, executeApprovalAction, setFocusedCardId, busyTask === "execution")}
           {activeScreen === "report" && renderReport(report, checks, handoffPacketText, buildReport, copyReport, copyHandoffPacket, isBusy)}
           {activeScreen === "help" && renderHelp(plan, checkForUpdates, resetLocalProgress, isBusy)}
         </section>
       </div>
 
       <footer>
-        <span>문서 기준 초기 버전 · 실제 설치 명령은 사용자 동의와 승인 절차 후 단계적으로 추가합니다.</span>
+        <span>허용된 설치 작업만 실행 · 비밀번호와 토큰은 받지 않음</span>
         <span>필수 항목 수: {requiredCount || "진단 전"}</span>
       </footer>
 
@@ -565,6 +570,7 @@ function renderApprovalQueue(
   cards: ApprovalCard[],
   focusedCard: ApprovalCard | null,
   lines: LogLine[],
+  executionStatuses: Record<string, ExecutionStatus>,
   setDecision: (cardId: string, decision: ApprovalDecision) => void,
   executeAction: (card: ApprovalCard, autoContinue?: boolean) => void,
   setFocused: (cardId: string) => void,
@@ -589,7 +595,9 @@ function renderApprovalQueue(
         />
       ) : (
         <div className="content-scroll approval-list">
-          {cards.map((card) => (
+          {cards.map((card) => {
+            const executionStatus = executionStatuses[card.id];
+            return (
             <article className={`approval-card ${riskTierClassName(card.step.risk_tier)}`} key={card.id} onClick={() => setFocused(card.id)}>
               <div className="approval-card-header">
                 <div>
@@ -616,15 +624,28 @@ function renderApprovalQueue(
                 <button type="button" onClick={() => setDecision(card.id, "deferred")}>나중에</button>
                 <button type="button" onClick={() => setDecision(card.id, "ask_instructor")}>강사에게 도움 요청</button>
               </div>
-              <small>현재 선택: {approvalDecisionLabels[card.decision]}</small>
+              <small>동의 표시: {approvalDecisionLabels[card.decision]} · 실행 상태: {executionStatus ? executionStatusLabels[executionStatus] : "아직 시작 전"}</small>
             </article>
-          ))}
+            );
+          })}
         </div>
       )}
       <LogView focusedCard={focusedCard} lines={lines} />
     </div>
   );
 }
+
+const executionStatusLabels: Record<ExecutionStatus, string> = {
+  queued: "대기 중",
+  needs_user_confirm: "사용자 확인 필요",
+  running: "실행 중",
+  needs_os_consent: "권한 창 확인 필요",
+  needs_browser_auth: "브라우저 로그인 필요",
+  needs_reboot: "재시작 후 확인 필요",
+  verifying: "검증 중",
+  done: "완료",
+  blocked: "막힘",
+};
 
 function primaryApprovalActionLabel(card: ApprovalCard): string {
   if (card.step.action_phase === "external_flow") {
@@ -752,12 +773,16 @@ function ProgressModal({ task }: { task: BusyTask }) {
       ? "설치 계획을 불러오는 중입니다"
       : task === "update"
         ? "업데이트를 확인하는 중입니다"
-        : "리포트를 만드는 중입니다";
+        : task === "execution"
+          ? "설치 작업을 진행 중입니다"
+          : "리포트를 만드는 중입니다";
   const helper = task === "diagnostics"
     ? "허용된 확인 명령만 실행하고, 비밀번호나 토큰은 요청하지 않습니다."
     : task === "update"
       ? "공개 GitHub 릴리즈의 서명된 업데이트 정보만 확인합니다."
-    : "잠시만 기다려 주세요. 화면을 이동해도 진행 상태는 유지됩니다.";
+      : task === "execution"
+        ? "권한 창이 뜨면 사용자가 직접 예를 눌러 주세요. 앱은 설치가 끝난 뒤 자동으로 검증합니다."
+        : "잠시만 기다려 주세요. 화면을 이동해도 진행 상태는 유지됩니다.";
 
   return (
     <div className="modal-backdrop" role="alertdialog" aria-modal="true" aria-label="진행 상황">
@@ -769,8 +794,8 @@ function ProgressModal({ task }: { task: BusyTask }) {
           <p>{helper}</p>
           <ol>
             <li>허용된 작업인지 확인</li>
-            <li>현재 컴퓨터 상태 점검</li>
-            <li>민감정보 가림 처리</li>
+            <li>{task === "execution" ? "필요하면 Windows 권한 창 대기" : "현재 컴퓨터 상태 점검"}</li>
+            <li>{task === "execution" ? "설치 완료 후 검증" : "민감정보 가림 처리"}</li>
             <li>화면에 결과 표시</li>
           </ol>
         </div>
