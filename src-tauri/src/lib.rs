@@ -282,6 +282,15 @@ struct ExecutionOutcome {
     docs_url: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+struct ExternalFlowCommand {
+    title_ko: &'static str,
+    program: &'static str,
+    args: &'static [&'static str],
+    verify_program: &'static str,
+    verify_args: &'static [&'static str],
+}
+
 #[derive(Debug, Clone, Serialize)]
 struct SetupExecutionEvent {
     action_id: String,
@@ -534,7 +543,16 @@ fn allowed_commands() -> Vec<RecipeStep> {
             label_ko: "GitHub 브라우저 로그인 시작",
             description_ko: "GitHub 로그인은 브라우저에서 진행됩니다. 이 앱은 GitHub 비밀번호를 묻지 않습니다.",
             program: "gh",
-            args: &["auth", "login"],
+            args: &[
+                "auth",
+                "login",
+                "--web",
+                "--clipboard",
+                "--hostname",
+                "github.com",
+                "--git-protocol",
+                "https",
+            ],
             required_for_class: true,
             requires_consent: true,
             may_require_elevation: false,
@@ -548,7 +566,7 @@ fn allowed_commands() -> Vec<RecipeStep> {
             package_source: None,
             rollback_note_ko: "로그인은 해당 서비스의 공식 CLI에서 관리합니다. 필요하면 공식 CLI에서 로그아웃하세요.",
             support_handoff_ko: "브라우저 로그인 단계에서 막혔는지, CLI 인증 상태가 실패했는지 확인하세요.",
-            command_preview: "gh auth login",
+            command_preview: "gh auth login --web --clipboard --hostname github.com --git-protocol https",
             requires_elevation_method: ElevationMethod::UserManaged,
         },
         RecipeStep {
@@ -825,6 +843,193 @@ fn command_preview_for(program: &str, args: &[&str]) -> String {
     }
 }
 
+fn external_flow_command_for(action_id: &str) -> Option<ExternalFlowCommand> {
+    match action_id {
+        "gh.auth.login" => Some(ExternalFlowCommand {
+            title_ko: "GitHub 브라우저 로그인",
+            program: "gh",
+            args: &[
+                "auth",
+                "login",
+                "--web",
+                "--clipboard",
+                "--hostname",
+                "github.com",
+                "--git-protocol",
+                "https",
+            ],
+            verify_program: "gh",
+            verify_args: &["auth", "status"],
+        }),
+        "vercel.login" => Some(ExternalFlowCommand {
+            title_ko: "Vercel 브라우저 로그인",
+            program: "vercel",
+            args: &["login"],
+            verify_program: "vercel",
+            verify_args: &["whoami"],
+        }),
+        _ => None,
+    }
+}
+
+fn execute_external_flow_action(step: &RecipeStep) -> Result<ExecutionOutcome, String> {
+    let flow = external_flow_command_for(step.id)
+        .ok_or_else(|| format!("외부 로그인 실행 레시피가 연결되지 않았습니다: {}", step.id))?;
+
+    let launch_evidence = launch_external_flow_terminal(&flow);
+    if launch_evidence.exit_code != Some(0) {
+        let detail = first_non_empty_line(&launch_evidence.stderr_redacted)
+            .or_else(|| first_non_empty_line(&launch_evidence.stdout_redacted))
+            .unwrap_or_else(|| "로그인 창을 열 수 없습니다.".to_string());
+        return Ok(ExecutionOutcome {
+            action_id: step.id.to_string(),
+            status: ExecutionStatus::Blocked,
+            message_ko: format!("{} 창을 열지 못했습니다.", step.label_ko),
+            next_action_ko: format!(
+                "공식 CLI 로그인 명령을 직접 실행해 주세요: {}. 오류: {detail}",
+                step.command_preview
+            ),
+            command_preview: Some(step.command_preview.to_string()),
+            docs_url: Some(step.docs_url.to_string()),
+        });
+    }
+
+    Ok(ExecutionOutcome {
+        action_id: step.id.to_string(),
+        status: ExecutionStatus::NeedsBrowserAuth,
+        message_ko: format!("{} 창을 열었습니다.", step.label_ko),
+        next_action_ko: "열린 명령 프롬프트와 브라우저에서 로그인을 완료하세요. 완료 후 앱으로 돌아와 '안전 진단 시작'을 다시 누르면 로그인 상태를 확인합니다.".to_string(),
+        command_preview: Some(step.command_preview.to_string()),
+        docs_url: Some(step.docs_url.to_string()),
+    })
+}
+
+fn launch_external_flow_terminal(flow: &ExternalFlowCommand) -> CommandEvidence {
+    let start = Instant::now();
+    let mut command = external_flow_launcher_command(flow);
+
+    #[cfg(target_os = "windows")]
+    if let Some(path) = refreshed_windows_path() {
+        command.env("PATH", path);
+    }
+
+    match command.status() {
+        Ok(status) => CommandEvidence {
+            exit_code: status.code(),
+            duration_ms: start.elapsed().as_millis(),
+            stdout_redacted: String::new(),
+            stderr_redacted: String::new(),
+        },
+        Err(error) => CommandEvidence {
+            exit_code: None,
+            duration_ms: start.elapsed().as_millis(),
+            stdout_redacted: String::new(),
+            stderr_redacted: redact(&error.to_string()),
+        },
+    }
+}
+
+fn external_flow_launcher_command(flow: &ExternalFlowCommand) -> Command {
+    #[cfg(target_os = "windows")]
+    {
+        let mut command = Command::new("cmd");
+        command
+            .arg("/C")
+            .arg("start")
+            .arg(format!("위드지니 셋업 - {}", flow.title_ko))
+            .arg("cmd")
+            .arg("/K")
+            .arg(windows_external_flow_script(flow))
+            .creation_flags(CREATE_NO_WINDOW);
+        return command;
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let mut command = Command::new("osascript");
+        let script = format!(
+            "tell application \"Terminal\" to activate\ntell application \"Terminal\" to do script {}",
+            applescript_string(&macos_external_flow_script(flow))
+        );
+        command.arg("-e").arg(script);
+        return command;
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    {
+        let mut command = Command::new(flow.program);
+        command.args(flow.args);
+        command
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn windows_external_flow_script(flow: &ExternalFlowCommand) -> String {
+    format!(
+        "echo 위드지니 셋업 - {} & echo. & echo 브라우저 로그인/코드 확인을 완료해 주세요. & echo 이 창은 자동으로 닫히지 않습니다. & echo. & {} & echo. & echo 로그인 명령이 끝났습니다. 검증 결과: & {} & echo. & echo 완료 후 앱으로 돌아가 '안전 진단 시작'을 다시 눌러 주세요. & pause",
+        flow.title_ko,
+        windows_command_line(flow.program, flow.args),
+        windows_command_line(flow.verify_program, flow.verify_args),
+    )
+}
+
+#[cfg(target_os = "windows")]
+fn windows_command_line(program: &str, args: &[&str]) -> String {
+    std::iter::once(program)
+        .chain(args.iter().copied())
+        .map(windows_cmd_arg)
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+#[cfg(target_os = "windows")]
+fn windows_cmd_arg(value: &str) -> String {
+    if value
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '_' | '/' | ':'))
+    {
+        value.to_string()
+    } else {
+        format!("\"{}\"", value.replace('"', "\\\""))
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_external_flow_script(flow: &ExternalFlowCommand) -> String {
+    format!(
+        "echo '위드지니 셋업 - {}'; echo; echo '브라우저 로그인/코드 확인을 완료해 주세요.'; {}; echo; echo '로그인 명령이 끝났습니다. 검증 결과:'; {}; echo; echo \"완료 후 앱으로 돌아가 '안전 진단 시작'을 다시 눌러 주세요.\"",
+        flow.title_ko,
+        posix_command_line(flow.program, flow.args),
+        posix_command_line(flow.verify_program, flow.verify_args),
+    )
+}
+
+#[cfg(target_os = "macos")]
+fn posix_command_line(program: &str, args: &[&str]) -> String {
+    std::iter::once(program)
+        .chain(args.iter().copied())
+        .map(posix_shell_arg)
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+#[cfg(target_os = "macos")]
+fn posix_shell_arg(value: &str) -> String {
+    if value
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '_' | '/' | ':'))
+    {
+        value.to_string()
+    } else {
+        format!("'{}'", value.replace('\'', "'\\''"))
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn applescript_string(value: &str) -> String {
+    format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
 fn verify_after_install(
     step: &RecipeStep,
 ) -> Result<(CheckStatus, Option<String>, CommandEvidence), String> {
@@ -888,7 +1093,6 @@ fn verify_after_install(
 
     Ok((status, detected_version, evidence))
 }
-
 
 fn install_output_indicates_existing_package(evidence: &CommandEvidence) -> bool {
     let combined = format!(
@@ -1442,6 +1646,17 @@ fn execute_setup_action(
         return Ok(outcome);
     }
 
+    if step.action_phase == ActionPhase::ExternalFlow {
+        let outcome = execute_external_flow_action(&step)?;
+        let kind = if outcome.status == ExecutionStatus::Blocked {
+            "stderr"
+        } else {
+            "system"
+        };
+        emit_execution_event(&app, execution_event_from_outcome(&outcome, kind))?;
+        return Ok(outcome);
+    }
+
     let outcome = execution_outcome_for(&step);
     let kind = if outcome.status == ExecutionStatus::Blocked {
         "stderr"
@@ -1701,6 +1916,36 @@ mod tests {
             *arg,
             "--github" | "--gitlab" | "--bitbucket" | "--oob" | "--token"
         )));
+    }
+
+    #[test]
+    fn github_login_uses_browser_clipboard_flow_without_prompting_for_tokens() {
+        let step = find_allowed_command("gh.auth.login").expect("GitHub login should exist");
+
+        assert_eq!(step.program, "gh");
+        assert!(step.args.contains(&"--web"));
+        assert!(step.args.contains(&"--clipboard"));
+        assert!(step.args.contains(&"--hostname"));
+        assert!(step.args.contains(&"github.com"));
+        assert!(step.args.contains(&"--git-protocol"));
+        assert!(step.args.contains(&"https"));
+        assert!(!step.args.contains(&"--with-token"));
+    }
+
+    #[test]
+    fn external_login_flows_have_launcher_commands_and_verify_steps() {
+        let github = external_flow_command_for("gh.auth.login")
+            .expect("GitHub external flow should have a launcher command");
+        assert_eq!(github.program, "gh");
+        assert_eq!(github.verify_program, "gh");
+        assert_eq!(github.verify_args, ["auth", "status"]);
+
+        let vercel = external_flow_command_for("vercel.login")
+            .expect("Vercel external flow should have a launcher command");
+        assert_eq!(vercel.program, "vercel");
+        assert_eq!(vercel.args, ["login"]);
+        assert_eq!(vercel.verify_program, "vercel");
+        assert_eq!(vercel.verify_args, ["whoami"]);
     }
 
     #[test]
