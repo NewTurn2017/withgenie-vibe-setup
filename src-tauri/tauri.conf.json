@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "위드지니 셋업",
-  "mainBinaryName": "withgenie-setup",
-  "version": "0.1.8",
+  "productName": "Vibe Coding Setup",
+  "mainBinaryName": "vibe-coding-setup",
+  "version": "0.1.9",
   "identifier": "com.withgenie.vibesetup",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -13,7 +13,7 @@
   "app": {
     "windows": [
       {
-        "title": "위드지니 셋업",
+        "title": "Vibe Coding Setup",
         "width": 1240,
         "height": 700,
         "minWidth": 900,

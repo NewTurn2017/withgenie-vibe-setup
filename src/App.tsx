@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check } from "@tauri-apps/plugin-updater";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import type { ApprovalCard, ApprovalDecision, CheckStatus, ExecuteSetupActionInput, ExecutionOutcome, ExecutionStatus, HealthReport, SetupExecutionEvent, SetupPlan, ToolCheck } from "./types";
 import { deriveApprovalQueue } from "./approvalQueue";
 import { buildLocalHandoffPacket, formatHandoffPacket } from "./handoffPacket";
@@ -15,6 +16,27 @@ import "./App.css";
 type ScreenId = "overview" | "plan" | "diagnostics" | "approval" | "report" | "help";
 type BusyTask = "plan" | "diagnostics" | "report" | "update" | "execution" | null;
 type StepState = "done" | "current" | "waiting";
+
+type FlowStage = {
+  id: string;
+  title: string;
+  helper: string;
+  state: StepState;
+};
+
+type SocialLinkId = "website" | "threads" | "github";
+
+type SocialLink = {
+  id: SocialLinkId;
+  label: string;
+  url: string;
+};
+
+const socialLinks: SocialLink[] = [
+  { id: "website", label: "홈페이지", url: "https://www.codewithgenie.com" },
+  { id: "threads", label: "Threads", url: "https://www.threads.com/@ai_developer_genie" },
+  { id: "github", label: "GitHub", url: "https://github.com/NewTurn2017/withgenie-vibe-setup" },
+];
 
 const statusLabels: Record<CheckStatus, string> = {
   installed: "준비됨",
@@ -35,6 +57,43 @@ const readinessLabels: Record<HealthReport["summary"]["class_readiness"], string
 
 const actionStatuses: CheckStatus[] = ["missing", "needs_repair", "needs_restart", "blocked", "unsupported"];
 
+
+function stageBadgeLabel(state: StepState): string {
+  if (state === "done") return "완료";
+  if (state === "current") return "진행 중";
+  return "대기";
+}
+
+function friendlyCheckLabel(check: ToolCheck): string {
+  const text = `${check.id} ${check.label}`.toLowerCase();
+  if (text.includes("node")) return "코딩 실행 준비";
+  if (text.includes("pnpm")) return "수업 프로젝트 실행";
+  if (text.includes("git.version")) return "프로젝트 저장 준비";
+  if (text.includes("gh.auth") || text.includes("github") || text.includes("gh cli")) return "GitHub 연결";
+  if (text.includes("vercel")) return "Vercel 연결";
+  return check.label;
+}
+
+function simpleStatusMessage(check: ToolCheck): string {
+  if (check.status === "installed") return "준비됐어요";
+  if (check.status === "missing") return "설치가 필요해요";
+  if (check.status === "needs_repair") return "복구가 필요해요";
+  if (check.status === "needs_restart") return "재시작 후 확인해요";
+  if (check.status === "blocked") return "도움이 필요해요";
+  if (check.status === "unsupported") return "지원 확인이 필요해요";
+  return "선택 항목이에요";
+}
+
+function primaryActionLabelForQueue(cards: ApprovalCard[], checksCount: number): string {
+  if (cards.length > 0) {
+    const first = cards[0];
+    if (first.step.action_phase === "external_flow") return "브라우저 로그인 열기";
+    if (first.step.action_phase === "install") return "필요한 것 자동 설치";
+    return "다음 단계 진행";
+  }
+  return checksCount > 0 ? "다시 점검하기" : "1분 점검 시작";
+}
+
 function App() {
   const initialResumeState = useMemo(() => loadResumeState(), []);
   const [activeScreen, setActiveScreen] = useState<ScreenId>(initialResumeState.activeScreen);
@@ -42,7 +101,7 @@ function App() {
   const [checks, setChecks] = useState<ToolCheck[]>([]);
   const [report, setReport] = useState<HealthReport | null>(null);
   const [busyTask, setBusyTask] = useState<BusyTask>(null);
-  const [message, setMessage] = useState("앱을 시작하면 현재 컴퓨터 상태를 안전하게 진단합니다.");
+  const [message, setMessage] = useState("버튼 하나로 점검하고, 필요한 것만 순서대로 준비합니다.");
   const [approvalDecisions, setApprovalDecisions] = useState<Record<string, ApprovalDecision>>(initialResumeState.approvalDecisions);
   const [focusedCardId, setFocusedCardId] = useState<string | null>(null);
   const [logLines, setLogLines] = useState<LogLine[]>([]);
@@ -129,37 +188,61 @@ function App() {
     };
   }, []);
 
-  const navItems = useMemo(
-    () => [
-      { id: "overview" as ScreenId, label: "시작", helper: "안전 안내 확인", state: (activeScreen === "overview" ? "current" : "done") as StepState },
-      {
-        id: "plan" as ScreenId,
-        label: "설치 계획",
-        helper: plan ? `${plan.steps.length}개 항목 준비` : "아직 안 봄",
-        state: (activeScreen === "plan" ? "current" : plan ? "done" : "waiting") as StepState,
-      },
-      {
-        id: "diagnostics" as ScreenId,
-        label: "진단 결과",
-        helper: busyTask === "diagnostics" ? "진행 중" : checks.length ? `${checks.length}개 점검` : "대기",
-        state: (busyTask === "diagnostics" || activeScreen === "diagnostics" ? "current" : checks.length ? "done" : "waiting") as StepState,
-      },
-      {
-        id: "approval" as ScreenId,
-        label: "승인 큐",
-        helper: approvalQueue.length ? `${approvalQueue.length}개 행동` : "진단 후 생성",
-        state: (activeScreen === "approval" ? "current" : approvalQueue.length ? "done" : "waiting") as StepState,
-      },
-      {
-        id: "report" as ScreenId,
-        label: "리포트",
-        helper: report ? "복사 가능" : checks.length ? "생성 가능" : "진단 후 가능",
-        state: (activeScreen === "report" ? "current" : report ? "done" : "waiting") as StepState,
-      },
-      { id: "help" as ScreenId, label: "도움말", helper: needsActionCount ? "막힐 때" : "참고", state: (activeScreen === "help" ? "current" : "waiting") as StepState },
-    ],
-    [activeScreen, approvalQueue.length, busyTask, checks.length, needsActionCount, plan, report],
+  const installQueueCount = useMemo(
+    () => approvalQueue.filter((card) => card.step.action_phase === "install").length,
+    [approvalQueue],
   );
+
+  const browserQueueCount = useMemo(
+    () => approvalQueue.filter((card) => card.step.action_phase === "external_flow").length,
+    [approvalQueue],
+  );
+
+  const flowStages = useMemo<FlowStage[]>(() => {
+    const hasDiagnostics = checks.length > 0;
+    const isReady = hasDiagnostics && approvalQueue.length === 0 && !!report;
+    const hasInstallWork = installQueueCount > 0;
+    const hasBrowserWork = browserQueueCount > 0;
+    return [
+      {
+        id: "check",
+        title: "점검",
+        helper: hasDiagnostics ? `${checks.length}개 확인 완료` : "먼저 누르세요",
+        state: busyTask === "diagnostics" || !hasDiagnostics ? "current" : "done",
+      },
+      {
+        id: "install",
+        title: "설치",
+        helper: hasInstallWork ? `${installQueueCount}개 남음` : hasDiagnostics ? "필요 없음" : "점검 후 표시",
+        state: hasInstallWork || (busyTask === "execution" && approvalQueue[0]?.step.action_phase === "install") ? "current" : hasDiagnostics ? "done" : "waiting",
+      },
+      {
+        id: "login",
+        title: "로그인",
+        helper: hasBrowserWork ? `${browserQueueCount}개 연결` : hasDiagnostics ? "확인 완료" : "마지막에 진행",
+        state: hasBrowserWork || (busyTask === "execution" && approvalQueue[0]?.step.action_phase === "external_flow") ? "current" : hasDiagnostics && !hasBrowserWork ? "done" : "waiting",
+      },
+      {
+        id: "finish",
+        title: "완료",
+        helper: isReady ? "수업 준비 완료" : "끝나면 버튼 확인",
+        state: isReady ? "done" : hasDiagnostics && approvalQueue.length === 0 ? "current" : "waiting",
+      },
+    ];
+  }, [approvalQueue, browserQueueCount, busyTask, checks.length, installQueueCount, report]);
+
+  const primaryFlowLabel = primaryActionLabelForQueue(approvalQueue, checks.length);
+
+
+
+  async function continuePrimaryFlow() {
+    if (isBusy) return;
+    if (approvalQueue[0]) {
+      await executeApprovalAction(approvalQueue[0], true);
+      return;
+    }
+    await runDiagnostics();
+  }
 
   function resetLocalProgress() {
     clearResumeState();
@@ -206,7 +289,7 @@ function App() {
     try {
       const setupPlan = await invoke<SetupPlan>("get_setup_plan");
       setPlan(setupPlan);
-      setMessage("설치 계획을 불러왔습니다. 원클릭 실행은 허용된 작업만 순서대로 시작합니다.");
+      setMessage("설치 계획을 불러왔습니다. 필요한 작업만 순서대로 보여드립니다.");
     } catch (error) {
       setMessage(`설치 계획을 불러오지 못했습니다: ${String(error)}`);
     } finally {
@@ -332,6 +415,20 @@ function App() {
     }
   }
 
+  async function openExternalLink(link: SocialLink) {
+    const hasTauriRuntime = Boolean((window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__);
+    try {
+      if (hasTauriRuntime) {
+        await openUrl(link.url);
+      } else {
+        window.open(link.url, "_blank", "noopener,noreferrer");
+      }
+      setMessage(`${link.label}를 기본 브라우저로 열었습니다.`);
+    } catch (error) {
+      setMessage(`${link.label} 링크를 열지 못했습니다: ${String(error)}`);
+    }
+  }
+
   async function checkForUpdates() {
     setBusyTask("update");
     setActiveScreen("help");
@@ -339,7 +436,7 @@ function App() {
     try {
       const update = await check({ timeout: 8000 });
       if (!update) {
-        setMessage("현재 설치된 위드지니 셋업이 최신 버전입니다.");
+        setMessage("현재 설치된 Vibe Coding Setup이 최신 버전입니다.");
         return;
       }
 
@@ -367,66 +464,50 @@ function App() {
     <main className="app-shell">
       <header className="top-bar">
         <div className="brand-block">
-          <p className="eyebrow">위드지니 개발 환경 도우미</p>
-          <h1>위드지니 셋업</h1>
-          <p>수업 전 개발 환경을 안전하게 점검합니다.</p>
+          <p className="eyebrow">WithGenie에서 만든 수업 준비 도우미</p>
+          <h1>Vibe Coding Setup</h1>
+          <p>어려운 용어는 줄이고, 준비 흐름만 크게 보여줍니다.</p>
         </div>
         <div className="top-actions" aria-label="주요 작업">
-          <button type="button" onClick={loadPlan} disabled={isBusy}>설치 계획</button>
-          <button type="button" className="primary" onClick={runDiagnostics} disabled={isBusy}>
-            {busyTask === "diagnostics" ? "진단 중" : checks.length ? "다시 진단" : "안전 진단 시작"}
+          <button type="button" className="primary big-primary" onClick={continuePrimaryFlow} disabled={isBusy}>
+            {busyTask === "diagnostics" ? "점검 중" : busyTask === "execution" ? "진행 중" : primaryFlowLabel}
           </button>
-          <button type="button" onClick={copyReport} disabled={checks.length === 0 || isBusy}>리포트 복사</button>
+          <button type="button" onClick={() => setActiveScreen("help")} disabled={isBusy}>도움말</button>
         </div>
       </header>
 
       <section className="status-strip" role="status" aria-live="polite">
         <div>
-          <span className="status-label">현재 상태</span>
+          <span className="status-label">지금 할 일</span>
           <strong>{message}</strong>
         </div>
         <div className="status-meters" aria-label="진행 요약">
           <span>준비도 {progressPercent}%</span>
           <span>필수 {requiredPassed}/{requiredCount || "-"}</span>
+          <span>남은 작업 {approvalQueue.length || needsActionCount}</span>
           <span>{currentReadiness}</span>
         </div>
       </section>
 
       <div className="workspace">
-        <aside className="side-rail" aria-label="진행 상태와 화면 이동">
-          <nav className="flow-card" aria-label="진행 상태와 화면 이동">
-            <div className="rail-title">
-              <strong>진행 상태</strong>
-              <span>항상 여기서 확인</span>
-            </div>
-            {navItems.map((item, index) => (
-              <button
-                type="button"
-                className={`rail-step ${item.state} ${activeScreen === item.id ? "active" : ""}`}
-                key={item.id}
-                onClick={() => setActiveScreen(item.id)}
-                aria-current={activeScreen === item.id ? "page" : undefined}
-              >
-                <span>{index + 1}</span>
-                <div>
-                  <strong>{item.label}</strong>
-                  <small>{item.helper}</small>
-                </div>
-              </button>
-            ))}
-          </nav>
+        <aside className="side-rail" aria-label="설치 흐름">
+          <FlowDiagram stages={flowStages} />
 
           <div className="summary-card">
             <span className={`readiness ${report?.summary.class_readiness ?? "pending"}`}>{currentReadiness}</span>
-            <p>{report?.summary.beginner_message ?? "진단을 시작하면 수업 준비 여부가 여기에 고정 표시됩니다."}</p>
+            <p>{report?.summary.beginner_message ?? "먼저 1분 점검을 누르면 다음 할 일을 알려드립니다."}</p>
             <div className="progress-bar" aria-label={`준비도 ${progressPercent}%`}>
               <span style={{ width: `${progressPercent}%` }} />
+            </div>
+            <div className="side-actions">
+              <button type="button" className="primary" onClick={continuePrimaryFlow} disabled={isBusy}>{primaryFlowLabel}</button>
+              <button type="button" onClick={() => setActiveScreen("report")} disabled={checks.length === 0 || isBusy}>문제 공유</button>
             </div>
           </div>
         </aside>
 
         <section className="screen-card" aria-label="선택한 화면">
-          {activeScreen === "overview" && renderOverview()}
+          {activeScreen === "overview" && renderOverview(flowStages, continuePrimaryFlow, primaryFlowLabel, isBusy)}
           {activeScreen === "plan" && renderPlan(plan, loadPlan, isBusy)}
           {activeScreen === "diagnostics" && renderDiagnostics(checks, buildReport, isBusy)}
           {activeScreen === "approval" && renderApprovalQueue(approvalQueue, focusedCard, logLines, executionStatuses, setApprovalDecision, executeApprovalAction, setFocusedCardId, busyTask === "execution")}
@@ -435,9 +516,22 @@ function App() {
         </section>
       </div>
 
-      <footer>
-        <span>허용된 설치 작업만 실행 · 비밀번호와 토큰은 받지 않음</span>
-        <span>필수 항목 수: {requiredCount || "진단 전"}</span>
+      <footer className="app-footer">
+        <span>WithGenie 제작 · 비밀번호와 토큰은 받지 않음</span>
+        <div className="footer-links" aria-label="WithGenie 링크">
+          {socialLinks.map((link) => (
+            <button
+              type="button"
+              className={`icon-link ${link.id}`}
+              key={link.id}
+              onClick={() => openExternalLink(link)}
+              title={`${link.label} 열기`}
+              aria-label={`${link.label} 열기`}
+            >
+              <SocialIcon id={link.id} />
+            </button>
+          ))}
+        </div>
       </footer>
 
       {busyTask && <ProgressModal task={busyTask} />}
@@ -445,43 +539,69 @@ function App() {
   );
 }
 
-function renderOverview() {
+function renderOverview(
+  stages: FlowStage[],
+  onPrimary: () => void,
+  primaryLabel: string,
+  isBusy: boolean,
+) {
   return (
     <div className="screen-stack overview-stack simple-overview">
-      <section className="screen-hero compact minimal-hero">
+      <section className="screen-hero compact minimal-hero hero-modern">
         <div>
-          <p className="eyebrow">시작</p>
-          <h2>수업 준비 상태를 간단히 확인합니다.</h2>
-          <p>필요한 도구만 확인하고, 문제는 리포트로 공유합니다.</p>
+          <p className="eyebrow">쉬운 수업 준비</p>
+          <h2>버튼 하나씩만 누르면 됩니다.</h2>
+          <p>앱이 점검하고, 설치가 필요하면 순서대로 안내합니다.</p>
         </div>
+        <button type="button" className="primary big-primary" onClick={onPrimary} disabled={isBusy}>{primaryLabel}</button>
       </section>
+
+      <FlowDiagram stages={stages} large />
 
       <section className="quick-grid minimal-grid">
-        <article className="info-card">
-          <span className="card-kicker">1</span>
-          <strong>설치 계획</strong>
-          <p>필수 항목만 먼저 확인합니다.</p>
+        <article className="info-card calm-card">
+          <span className="card-kicker">✓</span>
+          <strong>진행 중인지 보임</strong>
+          <p>각 단계에 완료 배지가 붙습니다.</p>
         </article>
-        <article className="info-card">
-          <span className="card-kicker">2</span>
-          <strong>안전 진단</strong>
-          <p>비밀번호 없이 현재 상태를 읽습니다.</p>
+        <article className="info-card calm-card">
+          <span className="card-kicker">↗</span>
+          <strong>로그인은 공식 화면</strong>
+          <p>GitHub와 Vercel 비밀번호는 받지 않습니다.</p>
         </article>
-        <article className="info-card">
-          <span className="card-kicker">3</span>
-          <strong>리포트</strong>
-          <p>막히면 강사에게 바로 보냅니다.</p>
+        <article className="info-card calm-card">
+          <span className="card-kicker">?</span>
+          <strong>막히면 공유</strong>
+          <p>강사에게 보낼 요약을 바로 만들 수 있습니다.</p>
         </article>
-      </section>
-
-      <section className="safety-strip" aria-label="안전 원칙">
-        <span>비밀번호 수집 안 함</span>
-        <span>확인 명령만 실행</span>
-        <span>민감정보 가림</span>
       </section>
     </div>
   );
 }
+
+function FlowDiagram({ stages, large = false }: { stages: FlowStage[]; large?: boolean }) {
+  return (
+    <nav className={`flow-diagram ${large ? "large" : ""}`} aria-label="전체 설치 흐름">
+      <div className="rail-title">
+        <strong>전체 흐름</strong>
+        <span>완료 배지로 확인</span>
+      </div>
+      <ol>
+        {stages.map((stage, index) => (
+          <li className={`flow-node ${stage.state}`} key={stage.id}>
+            <span className="flow-index">{stage.state === "done" ? "✓" : index + 1}</span>
+            <div>
+              <strong>{stage.title}</strong>
+              <small>{stage.helper}</small>
+            </div>
+            <em>{stageBadgeLabel(stage.state)}</em>
+          </li>
+        ))}
+      </ol>
+    </nav>
+  );
+}
+
 
 function renderPlan(plan: SetupPlan | null, loadPlan: () => void, isBusy: boolean) {
   return (
@@ -531,7 +651,7 @@ function renderDiagnostics(checks: ToolCheck[], buildReport: () => void, isBusy:
       <div className="screen-heading">
         <div>
           <p className="eyebrow">진단 결과</p>
-          <h2>수업 준비 상태를 항목별로 확인합니다.</h2>
+          <h2>복잡한 출력 대신 준비 상태만 보여줍니다.</h2>
         </div>
         <button type="button" onClick={buildReport} disabled={checks.length === 0 || isBusy}>리포트 새로 만들기</button>
       </div>
@@ -546,18 +666,11 @@ function renderDiagnostics(checks: ToolCheck[], buildReport: () => void, isBusy:
           {checks.map((check) => (
             <article className={`result-card ${check.status}`} key={check.id}>
               <div className="result-title">
-                <strong>{check.label}</strong>
+                <strong>{friendlyCheckLabel(check)}</strong>
                 <span>{statusLabels[check.status]}</span>
               </div>
-              <p>{check.beginner_message}</p>
-              <dl>
-                <dt>검증</dt>
-                <dd><code>{check.verify_command_label}</code></dd>
-                <dt>감지 값</dt>
-                <dd>{check.detected_version ?? "확인 안 됨"}</dd>
-                <dt>다음 조치</dt>
-                <dd>{check.support_action}</dd>
-              </dl>
+              <p className="simple-result-message">{simpleStatusMessage(check)}</p>
+              <small>{check.beginner_message}</small>
             </article>
           ))}
         </div>
@@ -580,11 +693,11 @@ function renderApprovalQueue(
     <div className="screen-stack approval-stack">
       <div className="screen-heading">
         <div>
-          <p className="eyebrow">승인 큐</p>
-          <h2>한 번 시작하면 가능한 설치를 순서대로 진행합니다.</h2>
+          <p className="eyebrow">다음 할 일</p>
+          <h2>필요한 것만 순서대로 진행합니다.</h2>
         </div>
         <div className="inline-actions">
-          <button type="button" className="primary" disabled={cards.length === 0 || isExecuting} onClick={() => cards[0] && executeAction(cards[0], true)}>원클릭 셋업 시작</button>
+          <button type="button" className="primary" disabled={cards.length === 0 || isExecuting} onClick={() => cards[0] && executeAction(cards[0], true)}>남은 작업 계속하기</button>
         </div>
       </div>
 
@@ -606,31 +719,23 @@ function renderApprovalQueue(
                 </div>
                 <span>{riskTierLabels[card.step.risk_tier]}</span>
               </div>
-              <p>{card.step.approval_copy_ko}</p>
-              <dl>
-                <dt>권한 안내</dt>
-                <dd>{card.step.expected_permission_prompt_ko}</dd>
-                <dt>공식 출처</dt>
-                <dd>{card.step.package_source ?? card.step.docs_url}</dd>
-                <dt>검증</dt>
-                <dd><code>{card.step.verify_command_label}</code></dd>
-                <dt>되돌리기</dt>
-                <dd>{card.step.rollback_note_ko}</dd>
-              </dl>
+              <p>{card.step.requires_browser ? "브라우저가 열리면 로그인만 완료하세요." : "설치가 끝나면 앱이 다시 확인합니다."}</p>
               <p className="risk-description">{riskTierDescriptions[card.step.risk_tier]}</p>
               <div className="approval-actions">
                 <button type="button" className="primary" disabled={isExecuting} onClick={() => executeAction(card)}>{primaryApprovalActionLabel(card)}</button>
-                <button type="button" onClick={() => setDecision(card.id, "manual")}>직접 할게요</button>
                 <button type="button" onClick={() => setDecision(card.id, "deferred")}>나중에</button>
-                <button type="button" onClick={() => setDecision(card.id, "ask_instructor")}>강사에게 도움 요청</button>
+                <button type="button" onClick={() => setDecision(card.id, "ask_instructor")}>도움 요청</button>
               </div>
-              <small>동의 표시: {approvalDecisionLabels[card.decision]} · 실행 상태: {executionStatus ? executionStatusLabels[executionStatus] : "아직 시작 전"}</small>
+              <small>상태: {executionStatus ? executionStatusLabels[executionStatus] : "아직 시작 전"}</small>
             </article>
             );
           })}
         </div>
       )}
-      <LogView focusedCard={focusedCard} lines={lines} />
+      <details className="advanced-log">
+        <summary>자세한 실행 기록 보기</summary>
+        <LogView focusedCard={focusedCard} lines={lines} />
+      </details>
     </div>
   );
 }
@@ -733,7 +838,7 @@ function renderHelp(plan: SetupPlan | null, checkForUpdates: () => void, resetLo
         <div><strong>수업 가능</strong><p>리포트를 저장하고 수업 프로젝트를 열면 됩니다.</p></div>
         <div><strong>복구 필요</strong><p>표시된 항목의 복구 안내를 따라 새 터미널에서 다시 확인하세요.</p></div>
         <div><strong>강사 지원 필요</strong><p>리포트 내용을 강사 또는 조교에게 전달하세요.</p></div>
-        <div><strong>업데이트</strong><p>GitHub 릴리즈에서 새 버전이 있는지 확인합니다.</p><button type="button" onClick={checkForUpdates} disabled={isBusy}>업데이트 확인</button></div>
+        <div><strong>업데이트</strong><p>새 버전이 있는지 확인합니다.</p><button type="button" onClick={checkForUpdates} disabled={isBusy}>업데이트 확인</button></div>
         <div><strong>로컬 진행 초기화</strong><p>승인 큐 선택과 마지막 화면 기억만 지웁니다. 설치된 도구나 계정 로그인은 건드리지 않습니다.</p><button type="button" onClick={resetLocalProgress} disabled={isBusy}>진행 상태 초기화</button></div>
       </div>
       <section className="notice-card danger-soft">
@@ -741,6 +846,32 @@ function renderHelp(plan: SetupPlan | null, checkForUpdates: () => void, resetLo
         <p>{plan ? plan.forbidden_commands.join(" · ") : "강제 권한 상승, 비밀번호 수집, 출처 불명 설치 명령은 실행하지 않습니다."}</p>
       </section>
     </div>
+  );
+}
+
+function SocialIcon({ id }: { id: SocialLinkId }) {
+  if (id === "website") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="12" r="8.5" />
+        <path d="M3.8 12h16.4M12 3.5c2.2 2.3 3.4 5 3.4 8.5s-1.2 6.2-3.4 8.5C9.8 18.2 8.6 15.5 8.6 12S9.8 5.8 12 3.5Z" />
+      </svg>
+    );
+  }
+
+  if (id === "threads") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M16.7 8.6c-.6-2.5-2.3-3.8-4.8-3.8-3.4 0-5.3 2.5-5.3 7.1s2 7.3 5.6 7.3c3 0 5.1-1.7 5.1-4.1 0-2.1-1.5-3.4-4.1-3.4h-1.1" />
+        <path d="M12 11.7c-1.8 0-3 .8-3 2.1s1.1 2.1 2.7 2.1c2.2 0 3.4-1.4 3.4-3.6v-1.1c0-3.1-1.6-4.7-4.3-4.7" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 3.6a8.4 8.4 0 0 0-2.7 16.4c.4.1.5-.2.5-.4v-1.6c-2.2.5-2.7-.9-2.7-.9-.4-.9-.9-1.1-.9-1.1-.7-.5.1-.5.1-.5.8.1 1.3.9 1.3.9.7 1.3 1.9.9 2.3.7.1-.5.3-.9.5-1.1-1.8-.2-3.6-.9-3.6-4a3.1 3.1 0 0 1 .8-2.2 2.9 2.9 0 0 1 .1-2.1s.7-.2 2.3.8a7.7 7.7 0 0 1 4.1 0c1.6-1 2.3-.8 2.3-.8.4 1 .2 1.8.1 2.1.5.6.8 1.3.8 2.2 0 3.1-1.9 3.8-3.6 4 .3.3.6.8.6 1.6v2.2c0 .2.1.5.6.4A8.4 8.4 0 0 0 12 3.6Z" />
+    </svg>
   );
 }
 
@@ -774,14 +905,14 @@ function ProgressModal({ task }: { task: BusyTask }) {
       : task === "update"
         ? "업데이트를 확인하는 중입니다"
         : task === "execution"
-          ? "설치 작업을 진행 중입니다"
+          ? "다음 단계를 진행 중입니다"
           : "리포트를 만드는 중입니다";
   const helper = task === "diagnostics"
     ? "허용된 확인 명령만 실행하고, 비밀번호나 토큰은 요청하지 않습니다."
     : task === "update"
       ? "공개 GitHub 릴리즈의 서명된 업데이트 정보만 확인합니다."
       : task === "execution"
-        ? "권한 창이 뜨면 사용자가 직접 예를 눌러 주세요. 앱은 설치가 끝난 뒤 자동으로 검증합니다."
+        ? "설치나 브라우저 로그인이 끝나면 앱으로 돌아와 다시 점검하세요."
         : "잠시만 기다려 주세요. 화면을 이동해도 진행 상태는 유지됩니다.";
 
   return (

@@ -1,6 +1,6 @@
 # 릴리즈 운영 노트
 
-위드지니 셋업은 Tauri v2 updater 흐름을 사용합니다.
+Vibe Coding Setup은 Tauri v2 updater 흐름을 사용합니다.
 
 ## 서명 키
 

@@ -936,7 +936,7 @@ fn external_flow_launcher_command(flow: &ExternalFlowCommand) -> Command {
         command
             .arg("/C")
             .arg("start")
-            .arg(format!("위드지니 셋업 - {}", flow.title_ko))
+            .arg(format!("Vibe Coding Setup - {}", flow.title_ko))
             .arg("cmd")
             .arg("/K")
             .arg(windows_external_flow_script(flow))
@@ -966,7 +966,7 @@ fn external_flow_launcher_command(flow: &ExternalFlowCommand) -> Command {
 #[cfg(target_os = "windows")]
 fn windows_external_flow_script(flow: &ExternalFlowCommand) -> String {
     format!(
-        "echo 위드지니 셋업 - {} & echo. & echo 브라우저 로그인/코드 확인을 완료해 주세요. & echo 이 창은 자동으로 닫히지 않습니다. & echo. & {} & echo. & echo 로그인 명령이 끝났습니다. 검증 결과: & {} & echo. & echo 완료 후 앱으로 돌아가 '안전 진단 시작'을 다시 눌러 주세요. & pause",
+        "echo Vibe Coding Setup - {} & echo. & echo 브라우저 로그인/코드 확인을 완료해 주세요. & echo 이 창은 자동으로 닫히지 않습니다. & echo. & {} & echo. & echo 로그인 명령이 끝났습니다. 검증 결과: & {} & echo. & echo 완료 후 앱으로 돌아가 '1분 점검'을 다시 눌러 주세요. & pause",
         flow.title_ko,
         windows_command_line(flow.program, flow.args),
         windows_command_line(flow.verify_program, flow.verify_args),
@@ -997,7 +997,7 @@ fn windows_cmd_arg(value: &str) -> String {
 #[cfg(target_os = "macos")]
 fn macos_external_flow_script(flow: &ExternalFlowCommand) -> String {
     format!(
-        "echo '위드지니 셋업 - {}'; echo; echo '브라우저 로그인/코드 확인을 완료해 주세요.'; {}; echo; echo '로그인 명령이 끝났습니다. 검증 결과:'; {}; echo; echo \"완료 후 앱으로 돌아가 '안전 진단 시작'을 다시 눌러 주세요.\"",
+        "echo 'Vibe Coding Setup - {}'; echo; echo '브라우저 로그인/코드 확인을 완료해 주세요.'; {}; echo; echo '로그인 명령이 끝났습니다. 검증 결과:'; {}; echo; echo \"완료 후 앱으로 돌아가 '1분 점검'을 다시 눌러 주세요.\"",
         flow.title_ko,
         posix_command_line(flow.program, flow.args),
         posix_command_line(flow.verify_program, flow.verify_args),
@@ -1729,7 +1729,7 @@ fn build_health_report(input: HealthReportInput) -> HealthReport {
         schema_version: "0.1.0",
         generated_at: Utc::now().to_rfc3339(),
         app: AppInfo {
-            name: "위드지니 셋업",
+            name: "Vibe Coding Setup",
             version: APP_VERSION,
             recipe_version: RECIPE_VERSION,
             distribution_channel: "public_github",
@@ -1832,30 +1832,30 @@ pub fn run() {
 
 fn install_korean_native_menu<R: tauri::Runtime>(app: &mut tauri::App<R>) -> tauri::Result<()> {
     let about = AboutMetadata {
-        name: Some("위드지니 셋업".to_string()),
+        name: Some("Vibe Coding Setup".to_string()),
         version: Some(APP_VERSION.to_string()),
         copyright: Some("© WithGenie".to_string()),
         ..Default::default()
     };
 
     #[cfg(target_os = "macos")]
-    let app_menu = SubmenuBuilder::new(app, "위드지니 셋업")
-        .about_with_text("위드지니 셋업 정보", Some(about))
+    let app_menu = SubmenuBuilder::new(app, "Vibe Coding Setup")
+        .about_with_text("Vibe Coding Setup 정보", Some(about))
         .separator()
         .services_with_text("서비스")
         .separator()
-        .hide_with_text("위드지니 셋업 가리기")
+        .hide_with_text("Vibe Coding Setup 가리기")
         .hide_others_with_text("다른 앱 가리기")
         .show_all_with_text("모두 보이기")
         .separator()
-        .quit_with_text("위드지니 셋업 종료")
+        .quit_with_text("Vibe Coding Setup 종료")
         .build()?;
 
     #[cfg(not(target_os = "macos"))]
-    let app_menu = SubmenuBuilder::new(app, "위드지니 셋업")
-        .about_with_text("위드지니 셋업 정보", Some(about))
+    let app_menu = SubmenuBuilder::new(app, "Vibe Coding Setup")
+        .about_with_text("Vibe Coding Setup 정보", Some(about))
         .separator()
-        .quit_with_text("위드지니 셋업 종료")
+        .quit_with_text("Vibe Coding Setup 종료")
         .build()?;
 
     let file_menu = SubmenuBuilder::new(app, NATIVE_MENU_LABELS_KO[0])

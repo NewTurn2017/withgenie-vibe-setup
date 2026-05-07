@@ -20,7 +20,7 @@ export function buildLocalHandoffPacket(report: HealthReport | null, checks: Too
 
 export function formatHandoffPacket(packet: HandoffPacket): string {
   const lines = [
-    "# 위드지니 셋업 강사용 핸드오프",
+    "# Vibe Coding Setup 강사용 핸드오프",
     "",
     `생성 시각: ${packet.generated_at}`,
     "",

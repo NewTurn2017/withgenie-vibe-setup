@@ -1381,3 +1381,254 @@ footer {
   color: #e2e8f0;
   outline: none;
 }
+
+/* v0.1.9 beginner-first redesign */
+.big-primary {
+  padding: 0.95rem 1.35rem;
+  font-size: 1rem;
+}
+
+.flow-diagram {
+  display: grid;
+  gap: 0.65rem;
+  min-width: 0;
+}
+
+.flow-diagram ol {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.flow-node {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.65rem;
+  border: 1px solid rgba(80, 102, 150, 0.12);
+  border-radius: 1.05rem;
+  padding: 0.72rem;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(246, 249, 255, 0.9));
+  color: #415272;
+}
+
+.flow-node::after {
+  content: "";
+  position: absolute;
+  left: 1.52rem;
+  bottom: -0.58rem;
+  width: 2px;
+  height: 0.58rem;
+  background: #d7e0f3;
+}
+
+.flow-node:last-child::after,
+.flow-diagram.large .flow-node::after {
+  display: none;
+}
+
+.flow-index {
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  place-items: center;
+  border-radius: 50%;
+  color: #6d7b96;
+  background: #edf2fb;
+  font-weight: 950;
+}
+
+.flow-node strong,
+.flow-node small,
+.flow-node em {
+  display: block;
+  font-style: normal;
+  line-height: 1.25;
+}
+
+.flow-node small {
+  color: #6d7890;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.flow-node em {
+  border-radius: 999px;
+  padding: 0.25rem 0.48rem;
+  color: #6d7b96;
+  background: #edf2fb;
+  font-size: 0.68rem;
+  font-weight: 950;
+  white-space: nowrap;
+}
+
+.flow-node.current {
+  border-color: rgba(37, 88, 217, 0.26);
+  background: linear-gradient(135deg, #edf4ff, #f8fbff);
+  box-shadow: 0 12px 30px rgba(37, 88, 217, 0.11);
+}
+
+.flow-node.current .flow-index,
+.flow-node.current em {
+  color: white;
+  background: linear-gradient(135deg, #2558d9, #7a45ff);
+}
+
+.flow-node.done {
+  border-color: rgba(32, 163, 107, 0.22);
+  background: linear-gradient(135deg, #effcf6, #fbfffd);
+}
+
+.flow-node.done .flow-index,
+.flow-node.done em {
+  color: white;
+  background: #20a36b;
+}
+
+.flow-diagram.large {
+  border: 1px solid rgba(80, 102, 150, 0.1);
+  border-radius: 1.2rem;
+  padding: 1rem;
+  background:
+    radial-gradient(circle at top right, rgba(37, 88, 217, 0.08), transparent 16rem),
+    rgba(255, 255, 255, 0.74);
+}
+
+.flow-diagram.large ol {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.flow-diagram.large .flow-node {
+  min-height: 7rem;
+  grid-template-columns: 1fr;
+  align-content: space-between;
+  gap: 0.55rem;
+}
+
+.flow-diagram.large .flow-node em {
+  justify-self: start;
+}
+
+.hero-modern {
+  align-items: center;
+  min-height: 8.4rem;
+}
+
+.hero-modern h2 {
+  font-size: clamp(1.8rem, 3vw, 2.8rem);
+}
+
+.calm-card::before {
+  opacity: 0;
+}
+
+.simple-result-message {
+  color: #172033 !important;
+  font-size: 1.08rem;
+  font-weight: 950;
+}
+
+.result-card small {
+  display: block;
+  margin-top: 0.45rem;
+  color: #6a7891;
+  line-height: 1.45;
+}
+
+.approval-card dl,
+.result-card dl {
+  display: none;
+}
+
+.advanced-log {
+  margin-top: 0.75rem;
+}
+
+.advanced-log > summary {
+  cursor: pointer;
+  color: #5e6f8e;
+  font-weight: 900;
+  list-style-position: inside;
+}
+
+.advanced-log .log-view {
+  margin-top: 0.55rem;
+}
+
+.side-actions {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.4rem;
+}
+
+.app-footer {
+  align-items: center;
+}
+
+.footer-links {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.icon-link {
+  display: grid;
+  width: 2.15rem;
+  height: 2.15rem;
+  place-items: center;
+  padding: 0;
+  color: #2452a6;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.icon-link svg {
+  width: 1.22rem;
+  height: 1.22rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.icon-link.github svg {
+  fill: currentColor;
+  stroke: none;
+}
+
+.icon-link.threads {
+  color: #111827;
+}
+
+.icon-link.github {
+  color: #172033;
+}
+
+@media (max-width: 1120px) {
+  .flow-diagram.large ol {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .flow-diagram.large ol {
+    grid-template-columns: 1fr;
+  }
+
+  .hero-modern {
+    align-items: flex-start;
+  }
+}
+
+.side-rail {
+  grid-template-rows: auto auto;
+  align-content: space-between;
+}
+
+.flow-diagram {
+  align-content: start;
+  grid-auto-rows: max-content;
+}

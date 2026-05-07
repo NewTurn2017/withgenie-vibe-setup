@@ -1,4 +1,6 @@
-# 위드지니 셋업
+# Vibe Coding Setup
+
+WithGenie에서 만든 초보자용 바이브코딩 수업 준비 도우미입니다.
 
 수업을 시작하기 전에 내 컴퓨터가 잘 준비되었는지 한 번에 확인해 주는 한국어 데스크톱 앱입니다. Windows와 macOS에서 모두 사용할 수 있어요.
 
@@ -22,20 +24,20 @@
 
 | 내 컴퓨터 | 받기 |
 | --- | --- |
-| **macOS** (M1/M2/M3/M4 등 최근 Mac) | [위드지니 셋업 받기 (.dmg)](https://github.com/NewTurn2017/withgenie-vibe-setup/releases/download/v0.1.8/withgenie-setup_0.1.8_darwin_aarch64.dmg) |
-| **Windows** 10 / 11 | [위드지니 셋업 받기 (.exe)](https://github.com/NewTurn2017/withgenie-vibe-setup/releases/download/v0.1.8/withgenie-setup_0.1.8_windows_x64-setup.exe) |
+| **macOS** (M1/M2/M3/M4 등 최근 Mac) | [Vibe Coding Setup 받기 (.dmg)](https://github.com/NewTurn2017/withgenie-vibe-setup/releases/download/v0.1.9/vibe-coding-setup_0.1.9_darwin_aarch64.dmg) |
+| **Windows** 10 / 11 | [Vibe Coding Setup 받기 (.exe)](https://github.com/NewTurn2017/withgenie-vibe-setup/releases/download/v0.1.9/vibe-coding-setup_0.1.9_windows_x64-setup.exe) |
 
 ## 설치하기
 
 ### Windows
 
 1. 받은 `.exe` 파일을 더블클릭하면 "PC를 보호했습니다" 라는 파란 창이 뜰 수 있어요. **추가 정보 → 실행** 을 차례로 누르면 진행됩니다.
-2. 설치 마법사가 나오면 **다음 → 설치** 만 누르세요. 설치가 끝나면 시작 메뉴에서 "위드지니 셋업" 을 검색해 실행합니다.
+2. 설치 마법사가 나오면 **다음 → 설치** 만 누르세요. 설치가 끝나면 시작 메뉴에서 "Vibe Coding Setup" 을 검색해 실행합니다.
 
 ### macOS
 
-1. 받은 `.dmg` 파일을 더블클릭하면 작은 창이 열립니다. 안에 보이는 **위드지니 셋업** 아이콘을 옆의 **Applications(응용 프로그램)** 폴더로 마우스로 끌어다 놓으세요.
-2. Launchpad나 응용 프로그램 폴더에서 "위드지니 셋업" 을 처음 실행할 때 "확인되지 않은 개발자" 라는 경고가 뜨면, 아이콘에 **마우스 우클릭(또는 컨트롤 + 클릭) → 열기 → 다시 한 번 열기** 를 눌러 주세요. 처음 한 번만 이렇게 하면 다음부터는 그냥 더블클릭으로 열립니다.
+1. 받은 `.dmg` 파일을 더블클릭하면 작은 창이 열립니다. 안에 보이는 **Vibe Coding Setup** 아이콘을 옆의 **Applications(응용 프로그램)** 폴더로 마우스로 끌어다 놓으세요.
+2. Launchpad나 응용 프로그램 폴더에서 "Vibe Coding Setup" 을 처음 실행할 때 "확인되지 않은 개발자" 라는 경고가 뜨면, 아이콘에 **마우스 우클릭(또는 컨트롤 + 클릭) → 열기 → 다시 한 번 열기** 를 눌러 주세요. 처음 한 번만 이렇게 하면 다음부터는 그냥 더블클릭으로 열립니다.
 
 ## 처음 켰을 때 무엇을 해야 하나요?
 
